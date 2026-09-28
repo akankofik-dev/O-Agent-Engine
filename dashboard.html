@@ -322,8 +322,11 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
    answering is how wide the chat column is — and a media query cannot see that.
    The session sidebar can be toggled away, the window is resizable, and the
    same element lives inside the floating window, so the width of the chat is
-   not a function of the width of the screen. */
-.chat { --oc-measure:720px; --oc-gutter:calc(20px * var(--fn-dens));
+   not a function of the width of the screen.
+   18px rather than 20: at a 720px measure the column has air to spare, and a
+   wider gutter on both sides is what makes a chat look padded rather than
+   placed. */
+.chat { --oc-measure:720px; --oc-gutter:calc(18px * var(--fn-dens));
   container-type:inline-size; container-name:chat; }
 
 /* OpenCode layout: the chat is the app. Messages take the full height, the
@@ -335,7 +338,7 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
   padding:3px calc(14px * var(--fn-dens));
   border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary);
   font-size:10.5px; color:var(--fn-text-tertiary); }
-.chat-panel-head { flex:none; display:flex; align-items:center; gap:5px; min-height:40px; padding:0 var(--oc-gutter);
+.chat-panel-head { flex:none; display:flex; align-items:center; gap:5px; min-height:36px; padding:0 var(--oc-gutter);
   border-bottom:1px solid var(--fn-border-secondary); background:var(--fn-bg-primary); }
 
 /* The wordmark, standing in the space between the conversation and the composer.
@@ -366,25 +369,23 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * twice, and it still flips with every palette and every theme.
  *
  * The scale multiplies with the reader's font-size setting. A logo is not a
- * reason to ignore the preference that text is being made larger. */
+ * reason to ignore the preference that text is being made larger.
+ *
+ * It is the mark of an *empty* chat, and the band it stands in is closed the
+ * moment there is anything to read. An earlier version faded the mark by
+ * however much of it fitted the space left over, which sounds careful and is
+ * not: a mark at 15% opacity in the middle of a live conversation is a ghost
+ * somebody is supposed to ignore, and it still held the height of the band.
+ * Once a conversation exists the space belongs to the conversation. */
 .chat-mark { flex:1 1 auto; min-height:0; overflow:hidden;
   display:flex; align-items:center; justify-content:center;
   padding:0 var(--oc-gutter); }
+.chat-mark[hidden] { display:none; }
 .ob-mark { display:block; height:calc(56px * var(--fn-fs-scale,1)); width:auto; max-width:100%;
-  /* The mark is taller than the space left for it as soon as a conversation
-     starts, and the space keeps shrinking. Clipping it through a block of
-     squares looks like a rendering fault, and hiding it on a step looks like a
-     jump, so it fades by however much of itself actually fits — measured in
-     markFit below, which watches the space and writes the ratio here. */
-  opacity:var(--mark-fade,1);
-  transition:opacity .28s ease;
   user-select:none; -webkit-user-drag:none; }
 .ob-mark-dim rect { fill:var(--fn-text-secondary); }
 .ob-mark-strong rect { fill:var(--fn-text-primary); }
 .ob-mark-count rect { fill:var(--fn-text-tertiary); }
-@media (prefers-reduced-motion:reduce) {
-  .ob-mark { transition:none; }
-}
 /* Measured against the chat, not the screen: the width this has to fit inside is
    the width of the chat column, and that is not the width of the screen — the
    session sidebar takes 264px when it is open, and the same element is moved
@@ -934,7 +935,12 @@ body.tab-chat .wb-head { display:none; }
  * It still scrolls, because a long conversation shrinks the log down to the
  * space that is left and the space that is left can reach nothing — at which
  * point the mark has no room and goes, and the log scrolls as it always did. */
-.chatlog { flex:0 1 auto; min-height:0; overflow-y:auto; padding:var(--oc-gutter) 0 6px; scroll-behavior:smooth; }
+/* The log's own padding is part of the rhythm, not a default: 14px under the
+   tabs so the first message is not adrift, and 10px at the foot so the last one
+ * is not jammed against the composer. The composer adds 10px of its own, which
+ * makes the 20px a conversation ends on — the one place in the column where a
+ * real gap is wanted, because that is where the eye goes next. */
+.chatlog { flex:0 1 auto; min-height:0; overflow-y:auto; padding:14px 0 10px; scroll-behavior:smooth; }
 .chatempty { max-width:var(--oc-measure); margin:10px auto 0; text-align:center; color:var(--fn-text-tertiary);
   font-size:12.5px; line-height:1.5; }
 .chatempty .oc-empty-title { color:var(--fn-text-primary); font-weight:600; }
@@ -949,25 +955,49 @@ body.tab-chat .wb-head { display:none; }
 .chat-network button { margin-left:auto; border:1px solid var(--fn-border-input-alt); background:transparent; color:var(--fn-text-primary);
   border-radius:calc(4px * var(--fn-radius-scale)); padding:3px 7px; cursor:pointer; font:inherit; font-size:10.5px; }
 .chatinner, .chatinner2 { max-width:var(--oc-measure); margin:0 auto; width:100%; }
-.chatinner { display:flex; flex-direction:column; gap:16px; padding:0 var(--oc-gutter); }
+.chatinner { display:flex; flex-direction:column; gap:14px; padding:0 var(--oc-gutter); }
 
-.msg { display:flex; flex-direction:column; gap:4px; position:relative; }
-.msg.same { margin-top:-6px; }
+/* The vertical rhythm of a conversation, in two levels and no more.
+ *
+ * 14px between one speaker and the next, 6px between two messages from the
+ * same speaker. Two levels is the whole trick: a chat with one gap everywhere
+ * reads as a spreadsheet and a chat with several reads as an accident, and the
+ * eye is far better at noticing which of two messages belong together than at
+ * noticing how many pixels there are. The run of messages from one speaker is
+ * the thing that should look like a run.
+ *
+ * Everything below follows from the same idea — the header sits closer to the
+ * text it labels than to the message above it, a paragraph is nearer its own
+ * list than the next paragraph is, and a list item is tighter than a paragraph
+ * break. Anything that was one number before and is another now was one number
+ * because it happened to be the one that was there. */
+.msg { display:flex; flex-direction:column; gap:3px; position:relative; }
+.msg.same { margin-top:-8px; }
 .msg .msghead { display:flex; align-items:center; gap:8px; min-height:15px; }
+/* A run of messages from one speaker is labelled once.
+ *
+ * The label on every message was the loudest thing in a conversation that was
+ * otherwise fine: the same avatar, the same name and the same minute repeated
+ * above two paragraphs of one answer. The reader learns everything from the
+ * first one and then reads the rest as a list of headings, and the run stops
+ * looking like a run — which is the opposite of what the tightened 6px gap above
+ * is for. The time goes with it, because a run of three messages does not need
+ * three timestamps to say when it happened. */
+.msg.same .msghead { display:none; }
 .msg .who { font-size:10px; font-weight:550; letter-spacing:.04em; text-transform:uppercase; color:var(--fn-text-tertiary); }
 .msg .time { font-size:10px; color:var(--fn-text-quaternary); font-variant-numeric:tabular-nums; }
-.msg .body { font-size:14px; line-height:1.6; color:var(--fn-text-primary); word-break:break-word; }
+.msg .body { font-size:14px; line-height:1.55; color:var(--fn-text-primary); word-break:break-word; }
 .msg .msghead::before { content:"O"; display:grid; place-items:center; width:20px; height:20px; flex:none; border:1px solid var(--fn-border-input-alt);
   border-radius:50%; color:var(--fn-text-secondary); font-size:10px; font-weight:600; }
 .msg.u .msghead::before { content:"U"; background:var(--fn-bg-secondary); color:var(--fn-text-primary); }
-.msg.u .body { background:var(--fn-bg-secondary); border:1px solid var(--fn-border-secondary); border-radius:calc(var(--fn-radius-lg) * var(--fn-radius-scale)); padding:8px 12px; }
+.msg.u .body { background:var(--fn-bg-secondary); border:1px solid var(--fn-border-secondary); border-radius:calc(var(--fn-radius-lg) * var(--fn-radius-scale)); padding:7px 11px; }
 .msg.a .body { padding:1px 0; }
 .msg.err .body { border-left:2px solid var(--fn-color-danger); padding-left:10px; }
 .msg .body:empty { display:none; }
-.msg .body p { margin:0 0 10px; }
+.msg .body p { margin:0 0 8px; }
 .msg .body p:last-child { margin-bottom:0; }
-.msg .body ul { margin:0 0 10px 20px; padding:0; }
-.msg .body li + li { margin-top:3px; }
+.msg .body ul { margin:0 0 8px 18px; padding:0; }
+.msg .body li + li { margin-top:2px; }
 .msg .body strong { font-weight:650; }
 .msg .body code { padding:1px 4px; border-radius:3px; background:var(--fn-bg-code); font:12px/1.4 var(--fn-font-mono); }
 .msg .codeblock { position:relative; margin:8px 0; padding:28px 10px 10px; overflow-x:auto; background:var(--fn-bg-code);
@@ -1020,7 +1050,7 @@ body.tab-chat .wb-head { display:none; }
 @media (prefers-reduced-motion:reduce) { .tooldetail .trow.now .tstate, .thinking .dots i { animation:none; opacity:1; } }
 
 /* composer */
-.chatfoot { flex:none; padding:calc(6px * var(--fn-dens)) var(--oc-gutter) calc(18px * var(--fn-dens));
+.chatfoot { flex:none; padding:calc(10px * var(--fn-dens)) var(--oc-gutter) calc(16px * var(--fn-dens));
   border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-primary); }
 .chatmeta { font-size:10.5px; color:var(--fn-text-tertiary); margin:0 0 5px 2px; display:flex; gap:8px; align-items:center; }
 .chatmeta a { color:var(--fn-text-tertiary); text-decoration:none; border-bottom:1px dotted var(--fn-border-tertiary); }
@@ -2722,49 +2752,29 @@ function addMsg(who, text, opts) {
 /** the short orientation line disappears as soon as there is a conversation */
 function paintChatEmpty() {
   const e = $("chatEmpty");
-  if (e) e.hidden = !!(chatInner && chatInner.childElementCount);
+  const empty = !(chatInner && chatInner.childElementCount);
+  if (e) e.hidden = !empty;
+  // the mark is the empty state's mark, so it is the same decision — the
+  // orientation line and the mark are never one without the other
+  markEmpty(empty);
 }
 
 /**
- * The wordmark fades by however much of itself actually fits.
+ * The wordmark is the mark of an empty chat, so it is shown exactly while the
+ * chat is empty and closed the moment it is not.
  *
- * It stands between the conversation and the composer, so the space it has is
- * whatever the conversation has not taken — which starts as most of the column
- * and falls to nothing as the conversation grows. A wordmark in a box that is
- * shorter than the wordmark is clipped through the middle of the letters, and
- * that reads as a rendering fault rather than as a mark giving way, so the
- * opacity is the fraction of the mark the box can show.
- *
- * Measured rather than toggled, because the space does not arrive in steps: it
- * shrinks continuously as messages are added, and a mark that appears and
- * disappears on a threshold blinks. A browser with no ResizeObserver keeps the
- * mark at full strength, which is where it starts and where it is meant to be
- * seen.
+ * It used to fade by however much of itself fitted the space the conversation
+ * had left over, which was careful in a way that did not help: a mark at 15%
+ * opacity in the middle of a live conversation is a ghost the reader is
+ * supposed to ignore, and it still occupied the height of its band — so the
+ * conversation ended with a faded logo floating above the composer. There is
+ * nothing to fade between. The space is either for the mark or for the
+ * conversation, and which one it is already known: paintChatEmpty decides it
+ * every time a message is added or cleared.
  */
-function markFit() {
+function markEmpty(on) {
   const box = document.querySelector(".chat-mark");
-  const mark = document.querySelector(".ob-mark");
-  if (!box || !mark) return;
-  const apply = () => {
-    const room = box.clientHeight;
-    // an SVG has no content height to compare against, so the box is measured
-    // against itself at full strength: the mark is scaled to fit the width it
-    // was given, and what is left over is what is left over
-    const need = mark.getBoundingClientRect().height || 1;
-    if (!need) return;
-    const fit = Math.max(0, Math.min(1, room / need));
-    mark.style.setProperty("--mark-fade", fit.toFixed(3));
-  };
-  apply();
-  if (typeof ResizeObserver === "function") {
-    let pending = 0;
-    new ResizeObserver(() => {
-      if (pending) return;
-      // one per frame: this fires for every message that lands, and laying out
-      // for each one of them is work for a number nobody can see changing
-      pending = requestAnimationFrame(() => { pending = 0; apply(); });
-    }).observe(box);
-  }
+  if (box) box.hidden = !on;
 }
 
 function chatNote(kind, text, opts) {
@@ -3365,7 +3375,6 @@ function wireChat() {
   histLoad();
   for (const m of HIST) addMsg(m.role === "user" ? "u" : "a", m.content);
   paintChatEmpty();
-  markFit();
   chatScroll();
   // a session that was mid-run when the page went away picks itself back up
   sessionId();
