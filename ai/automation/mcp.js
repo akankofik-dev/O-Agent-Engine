@@ -50,6 +50,15 @@ function createClient({ command, args = [], env = {}, cwd }) {
           env: Object.assign({}, process.env, env),
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
+          /* On Windows `npx` is npx.cmd, and spawn() does not resolve a bare
+             name to a .cmd — it reports ENOENT, so the engine looks permanently
+             unavailable on a machine where npx is installed and working. That
+             is the difference between an optional engine that works and one
+             that never does, and it is invisible on every platform but this
+             one. The argument array is handed to the shell as a quoted
+             sequence, so nothing here is word-split or re-interpreted on the
+             way in. */
+          shell: process.platform === 'win32',
         });
       } catch (e) {
         readyError = e;

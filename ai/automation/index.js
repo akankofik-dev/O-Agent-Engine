@@ -494,7 +494,50 @@ function createRouter({ driver, context, resolveProvider, engines }) {
     return 'no available engine supports ' + caps.join('/');
   }
 
-  return { route, describe, probeAll, invalidate, ENGINES, BY_ID, health, usable, rank, explain };
+  /**
+   * Stop every engine that holds something, before the process goes away.
+   *
+   * Three of the four engines own an external thing: a child `npx` process for
+   * Playwright MCP, a browser connection for Stagehand, a session and its
+   * browser for browser-use. None of them is torn down on the way out — the
+   * shutdown() methods were written and never called — so stopping the server
+   * left the `npx` child and the connections running. That is a leak the user
+   * pays for in processes they did not ask for, and on a machine where the
+   * server is restarted often it accumulates.
+   *
+   * native-cdp has nothing to stop: it owns no process, only the CDP connection
+   * the product already holds, and the host closes that itself.
+   *
+   * Each engine is stopped under a timeout, and one that throws or hangs does
+   * not stop the others — a half-finished shutdown is worse than a noisy one,
+   * because it is the reason the process would not have exited. Returns what it
+   * managed to stop and what it had to leave, so the caller can say so rather
+   * than exiting as if everything were clean.
+   */
+  const SHUTDOWN_GRACE_MS = 3000;
+  async function shutdownAll(opts = {}) {
+    const grace = typeof opts.graceMs === 'number' ? opts.graceMs : SHUTDOWN_GRACE_MS;
+    const stopped = [];
+    const failed = [];
+    for (const e of ENGINES) {
+      if (typeof e.shutdown !== 'function') continue;
+      let timer;
+      try {
+        await Promise.race([
+          e.shutdown(),
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('shutdown did not finish in ' + grace + 'ms')), grace); }),
+        ]);
+        stopped.push(e.id);
+      } catch (err) {
+        failed.push({ id: e.id, error: safeError(err) });
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+    return { stopped, failed };
+  }
+
+  return { route, describe, probeAll, invalidate, shutdownAll, ENGINES, BY_ID, health, usable, rank, explain };
 }
 
 /* ------------------------------- helpers --------------------------------- */

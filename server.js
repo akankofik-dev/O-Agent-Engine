@@ -2969,7 +2969,7 @@ async function main() {
 }
 
 let shuttingDown = false;
-function shutdown(sig) {
+async function shutdown(sig) {
   if (shuttingDown) return;
   shuttingDown = true;
   log(`\n${sig} — shutting down`);
@@ -2982,10 +2982,28 @@ function shutdown(sig) {
   try { if (cdpSocket) cdpSocket.close(); } catch { /* ignore */ }
   server.close();
   killChrome();
-  setTimeout(() => process.exit(0), 500);
+  /* The engines that own something have to be told to let go of it, or the
+     `npx` child Playwright MCP started and the browser connections Stagehand
+     and browser-use opened outlive this process. That is a leak the person
+     pays for in processes they never asked for, and it accumulates across
+     restarts. Each engine is stopped under a timeout inside the router, so
+     nothing here can wait forever — but the exit itself is still armed, in
+     case an engine's own shutdown() ignores its promise. */
+  const exited = new Promise(r => setTimeout(() => { r(); process.exit(0); }, 1200));
+  try {
+    const { stopped, failed } = await Promise.race([
+      automation.shutdownAll(),
+      new Promise(r => setTimeout(() => r({ stopped: [], failed: [{ id: '(timed out)', error: 'engines did not stop in time' }] }), 900)),
+    ]);
+    if (stopped.length) log('engines stopped: ' + stopped.join(', '));
+    for (const f of failed) logErr('engine ' + f.id + ' did not stop cleanly: ' + f.error);
+  } catch (e) {
+    logErr('engine shutdown:', e.message);
+  }
+  await exited;
 }
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => { shutdown('SIGINT'); });
+process.on('SIGTERM', () => { shutdown('SIGTERM'); });
 process.on('uncaughtException', e => logErr('uncaught:', e.stack || e));
 process.on('unhandledRejection', e => logErr('unhandled:', e && (e.stack || e.message || e)));
 
