@@ -627,7 +627,7 @@ body.tab-chat .wb-card { padding:0; }
 .floatwin .fw-dot { width:6px; height:6px; }
 .floatwin .chat-panel-head { min-height:24px; padding:0 5px 0 9px; gap:4px; }
 .floatwin .chat-session-tab { font-size:11px; }
-.floatwin .oc-status { padding:2px 9px; gap:6px; }
+.floatwin .oc-status { padding:2px var(--oc-gutter); gap:6px; }
 .floatwin .oc-status .oc-provider { display:none; }
 
 /* Browser: a quiet tab strip, one line of address, the page, one line
@@ -1171,7 +1171,7 @@ body.tab-chat .wb-head { display:none; }
  * child the bubble would simply be as wide as it was allowed to be. */
 .msg { display:flex; flex-direction:column; align-items:flex-start; gap:3px; position:relative; }
 .msg.same { margin-top:-8px; }
-.msg .msghead { display:flex; align-items:center; gap:8px; min-height:15px; }
+.msg .msghead { display:flex; align-items:center; gap:8px; align-self:stretch; width:100%; min-height:20px; }
 /* A run of messages from one speaker is labelled once.
  *
  * The label on every message was the loudest thing in a conversation that was
@@ -1183,7 +1183,7 @@ body.tab-chat .wb-head { display:none; }
  * three timestamps to say when it happened. */
 .msg.same .msghead { display:none; }
 .msg .who { font-size:10px; font-weight:550; letter-spacing:.04em; text-transform:uppercase; color:var(--fn-text-tertiary); }
-.msg .time { font-size:10px; color:var(--fn-text-quaternary); font-variant-numeric:tabular-nums; }
+.msg .time { font-size:10px; color:var(--fn-text-quaternary); font-variant-numeric:tabular-nums; margin-left:auto; }
 .msg .body { font-size:14px; line-height:1.55; color:var(--fn-text-primary); word-break:break-word; max-width:100%; }
 .msg .msghead::before { content:"O"; display:grid; place-items:center; width:20px; height:20px; flex:none; border:1px solid var(--fn-border-input-alt);
   border-radius:50%; color:var(--fn-text-secondary); font-size:10px; font-weight:600; }
@@ -1255,7 +1255,7 @@ body.tab-chat .wb-head { display:none; }
 
 /* composer */
 .chatfoot { flex:none;
-  padding:calc(10px * var(--fn-dens)) max(var(--oc-gutter), calc((100% - var(--oc-measure)) / 2 + var(--oc-gutter))) calc(16px * var(--fn-dens));
+  padding:calc(8px * var(--fn-dens)) max(var(--oc-gutter), calc((100% - var(--oc-measure)) / 2 + var(--oc-gutter))) calc(11px * var(--fn-dens));
   border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-primary); }
 .chatmeta { font-size:10.5px; color:var(--fn-text-tertiary); margin:0 0 5px 2px; display:flex; gap:8px; align-items:center; }
 .chatmeta a { color:var(--fn-text-tertiary); text-decoration:none; border-bottom:1px dotted var(--fn-border-tertiary); }
@@ -1284,7 +1284,7 @@ body.tab-chat .wb-head { display:none; }
 
 /* The composer is the one control that earns a border of its own: it is the
    only thing on the page the user is about to type into. */
-.composer { display:flex; flex-direction:column; align-items:stretch; gap:4px; padding:7px 8px 6px;
+.composer { display:flex; flex-direction:row; align-items:flex-end; gap:8px; padding:7px 8px 7px;
   background:var(--fn-bg-primary); border:1px solid var(--fn-border-input-alt);
   border-radius:calc(6px * var(--fn-radius-scale));
   transition:border-color var(--fn-transition); }
@@ -1292,7 +1292,7 @@ body.tab-chat .wb-head { display:none; }
 .composer textarea { flex:1; min-width:0; resize:none; border:none; outline:none; background:transparent;
   color:var(--fn-text-primary); font:inherit; font-size:13.5px; line-height:1.5; padding:5px 0;
   max-height:200px; overflow-y:auto; }
-.composer-controls { display:flex; align-items:center; gap:4px; min-height:27px; }
+.composer-controls { display:flex; align-items:center; gap:4px; flex:none; min-height:26px; }
 .model-chip { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:1px solid var(--fn-border-secondary); background:transparent;
   color:var(--fn-text-tertiary); border-radius:var(--fn-radius-sm); padding:4px 7px; cursor:pointer; font:10.5px var(--fn-font-ui); }
 .model-chip:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
