@@ -463,10 +463,14 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * it is to make the list work at the width the button is at. */
 .chat-head-btn.oc-side-toggle { font-size:12px; line-height:1; }
 .chat-head-btn.oc-side-toggle[aria-expanded="true"] { color:var(--fn-text-primary); }
-#p-chat .chathome.has-sidebar { display:grid; grid-template-columns:minmax(0,1fr) 264px; }
+/* 220px, not 264px. A list of session names does not need a third of a panel:
+   the longest name anyone types is a sentence, and it ellipsises long before
+   220px is full, so the extra 44px was showing nothing at all — while being
+   17% of the conversation. */
+#p-chat .chathome.has-sidebar { display:grid; grid-template-columns:minmax(0,1fr) 220px; }
 .oc-side { display:flex; flex-direction:column; min-height:0; min-width:0;
   border-left:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary); }
-.oc-side-head { display:flex; align-items:center; gap:8px; flex:none; padding:7px 12px;
+.oc-side-head { display:flex; align-items:center; gap:8px; flex:none; padding:6px 10px;
   font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--fn-text-tertiary); }
 .oc-empty-title { color:var(--fn-text-primary); font-weight:600; }
 .oc-empty-desc { color:var(--fn-text-tertiary); }
@@ -490,7 +494,7 @@ body.tab-chat .wb-card { border:none; border-radius:0; }
    * overlay offers and the reason it is only used where a column will not fit. */
   #p-chat .chathome { position:relative; }
   #p-chat .oc-side { position:absolute; top:var(--oc-side-top,0px); right:0; bottom:0; z-index:3;
-    width:min(264px,78vw); box-shadow:-10px 0 24px rgba(0,0,0,.22); }
+    width:min(220px,72vw); box-shadow:-10px 0 24px rgba(0,0,0,.22); }
   .chat-head-btn.oc-side-toggle[aria-expanded="true"] { background:var(--fn-bg-hover); }
 }
 /* inside a floating window the status line is narrower, and the provider name
@@ -1767,28 +1771,35 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
 .sesbar .sl { flex:none; }
 
 .sessions { flex:1; min-width:0; display:flex; flex-direction:column; min-height:0; }
-.ses-top { display:flex; align-items:center; gap:8px; padding:10px 12px;
+.ses-top { display:flex; align-items:center; gap:8px; padding:8px 10px;
   border-bottom:1px solid var(--fn-border-secondary); }
 .ses-list { flex:1; min-height:0; overflow-y:auto; }
-.ses-row { display:flex; align-items:center; gap:10px; padding:10px 12px;
+/* A row is a name and a time. It was padding 10px round two lines of text, which
+ * came to 55px a row for about twenty characters of content — a list of sessions
+ * is mostly scrolling past names, and at that size you see five of them and then
+ * you are scrolling. 7px and explicit line heights bring it to 42, and the
+ * difference is another four sessions on screen without anything being cut. */
+.ses-row { display:flex; align-items:center; gap:8px; padding:7px 10px;
   border-bottom:1px solid var(--fn-border-secondary); cursor:pointer;
   transition:background var(--fn-transition); }
 .ses-row:last-child { border-bottom:none; }
 .ses-row:hover { background:var(--fn-bg-hover); }
 .ses-row.on .st { color:var(--fn-text-brand); }
 .ses-row .smeta { min-width:0; flex:1; }
-.ses-row .st { font-size:12.5px; font-weight:550; color:var(--fn-text-primary);
+.ses-row .st { font-size:12px; line-height:1.35; font-weight:550; color:var(--fn-text-primary);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.ses-row .ss { font-size:11px; color:var(--fn-text-tertiary);
+.ses-row .ss { font-size:10.5px; line-height:1.3; color:var(--fn-text-tertiary);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ses-row .sacts { display:flex; gap:2px; flex:none; }
-/* tertiary, not quaternary: this is a control you press, not decoration. */
-.ses-del { width:24px; height:24px; display:grid; place-items:center; border:none;
+/* tertiary, not quaternary: this is a control you press, not decoration.
+   22px, not 24px \u2014 the row is 42px tall now, and a 24px button in it was
+   most of the row's height. Still above the 20px a pointer target wants. */
+.ses-del { width:22px; height:22px; display:grid; place-items:center; border:none;
   appearance:none; background:transparent; color:var(--fn-text-tertiary);
-  border-radius:var(--fn-radius); cursor:pointer; font-size:14px; line-height:1;
+  border-radius:var(--fn-radius); cursor:pointer; font-size:13px; line-height:1;
   transition:color var(--fn-transition), background var(--fn-transition); }
 .ses-del:hover { color:var(--fn-color-danger); background:var(--fn-bg-hover); }
-.ses-foot { display:flex; align-items:center; gap:8px; padding:10px 12px;
+.ses-foot { display:flex; align-items:center; gap:8px; padding:8px 10px;
   border-top:1px solid var(--fn-border-secondary); }
 </style>
 
