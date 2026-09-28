@@ -1,4 +1,4 @@
-# Octop Browser Automation
+# O Browser Automation
 
 Simple browser automation console with a live browser preview, AI agents, terminal access, and a pinned Chrome for Testing runtime.
 
