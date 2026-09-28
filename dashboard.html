@@ -447,7 +447,13 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * The density setting multiplies it, because every other control on the page
  * already does and a header button that ignores the density preference is the
  * one control that looks wrong the moment somebody turns it up. */
-.chat { --oc-btn: calc(clamp(22px, 1.3cqw + 16px, 32px) * var(--fn-dens)); }
+/* The size is declared once, on the shared parent, and cqw is resolved where
+ * the property is *used* rather than where it was declared. That is what lets
+ * one button follow two different panels: the chat and the list are both
+ * containers, the button spends its life in one or the other, and the unit
+ * resolves against whichever it is sitting in at the time. Nothing in script
+ * measures anything. */
+.chathome { --oc-btn: calc(clamp(22px, 1.3cqw + 16px, 32px) * var(--fn-dens)); }
 .chat-head-btn { display:grid; place-items:center; width:var(--oc-btn); height:var(--oc-btn);
   border:1px solid transparent; border-radius:var(--fn-radius-sm);
   background:transparent; color:var(--fn-text-tertiary); cursor:pointer; padding:0; }
@@ -477,11 +483,17 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * the status line.
  *
  * It is a control over what the panel shows, so it belongs with the other two —
- * the session title and the close button — and it is styled by them: same 25px
- * box, same borderless idle, same hover. It used to sit at the far left of the
- * status bar at the bottom, which put a view control a whole screen away from the
- * thing it views and made the status line look like a toolbar, which it is not.
- * It is a status line: it reports, and the controls are upstairs.
+ * the session title and the close button — and it is styled by them: the same
+ * box, the same borderless idle, the same hover. It used to sit at the far left
+ * of the status bar at the bottom, which put a view control a whole screen away
+ * from the thing it views and made the status line look like a toolbar, which it
+ * is not. It is a status line: it reports, and the controls are upstairs.
+ *
+ * And it belongs to the list more than to the header, so while the list is open
+ * the button lives in the list's own heading and travels with it. A control that
+ * opens a panel and then stays behind in a corner while the panel does something
+ * else is two controls pretending to be one, and the eye has to work out which
+ * corner it is meant to be in. One element, moved — see rehome() below.
  *
  * It is tinted while the list is showing, so it reads as a toggle with a state
  * rather than a glyph whose meaning you have to remember, and its label says
@@ -499,9 +511,17 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
    220px is full, so the extra 44px was showing nothing at all — while being
    17% of the conversation. */
 #p-chat .chathome.has-sidebar { display:grid; grid-template-columns:minmax(0,1fr) 220px; }
+/* The list is a container for the same reason the chat is: the toggle lives in
+ * here when the list is open, and a 220px panel should hold a 22px button, not
+ * the 26px the chat next to it wants. */
 .oc-side { display:flex; flex-direction:column; min-height:0; min-width:0;
+  container-type:inline-size;
   border-left:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary); }
-.oc-side-head { display:flex; align-items:center; gap:8px; flex:none; padding:6px 10px;
+/* The heading is the button plus air, same as the panel header above, because
+ * the button is in here now and a fixed-height strip would either clip it or
+ * leave it floating. */
+.oc-side-head { display:flex; align-items:center; gap:8px; flex:none;
+  min-height:calc(var(--oc-btn) + 12px); padding:6px 10px;
   font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--fn-text-tertiary); }
 .oc-empty-title { color:var(--fn-text-primary); font-weight:600; }
 .oc-empty-desc { color:var(--fn-text-tertiary); }
@@ -6948,6 +6968,31 @@ function wireSessions() {
       chathome.style.setProperty("--oc-side-top", h + "px");
     };
 
+    const sideHead = side.querySelector(".oc-side-head");
+    const panelHead = $("chatPanelHead");
+    const closeBtn = $("chatCloseFloat");
+
+    /* Where the toggle lives depends on what the list is doing.
+     *
+     * Closed, the button sits in the panel header, because that is the one place
+     * on screen that can open it. Open, it moves into the head of the list, so
+     * it belongs to the thing it controls and travels with it: a control that
+     * opens a panel and then stays behind in the corner while the panel does
+     * something else is two controls pretending to be one, and the eye has to
+     * work out which of the two corners it is meant to be in.
+     *
+     * It is the same element either way. Moving a node is one operation and
+     * there is no second copy to fall out of step with the first, no second
+     * label to keep truthful, and no way for the two to disagree about whether
+     * the list is open. */
+    const rehome = (on) => {
+      if (on && sideHead) sideHead.appendChild(toggle);
+      else if (panelHead) {
+        // before the close button, so the pair keeps its order
+        panelHead.insertBefore(toggle, closeBtn || null);
+      }
+    };
+
     const setOpen = (on) => {
       side.hidden = !on;
       if (chathome) chathome.classList.toggle("has-sidebar", on);
@@ -6958,6 +7003,7 @@ function wireSessions() {
       const what = on ? "Hide the session list" : "Show the session list";
       toggle.title = what;
       toggle.setAttribute("aria-label", what);
+      rehome(on);
       measureHead();
       try { localStorage.setItem("octop:oc-sidebar", on ? "1" : "0"); } catch { }
     };
