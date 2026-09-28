@@ -317,8 +317,14 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
 .panel { flex:1; min-height:0; display:none; overflow:hidden; }
 .panel.on { display:flex; }
 
-/* Chat: one measure and one gutter for the page and floating window. */
-.chat { --oc-measure:720px; --oc-gutter:calc(20px * var(--fn-dens)); }
+/* Chat: one measure and one gutter for the page and floating window. The chat
+   is also a container, because the only question the wordmark below needs
+   answering is how wide the chat column is — and a media query cannot see that.
+   The session sidebar can be toggled away, the window is resizable, and the
+   same element lives inside the floating window, so the width of the chat is
+   not a function of the width of the screen. */
+.chat { --oc-measure:720px; --oc-gutter:calc(20px * var(--fn-dens));
+  container-type:inline-size; container-name:chat; }
 
 /* OpenCode layout: the chat is the app. Messages take the full height, the
    composer sits at the bottom, a status line names the session and the model,
@@ -329,9 +335,69 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
   padding:3px calc(14px * var(--fn-dens));
   border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary);
   font-size:10.5px; color:var(--fn-text-tertiary); }
-.chat-panel-head { flex:none; display:flex; align-items:center; gap:5px; min-height:36px; padding:0 var(--oc-gutter);
+.chat-panel-head { flex:none; display:flex; align-items:center; gap:5px; min-height:40px; padding:0 var(--oc-gutter);
   border-bottom:1px solid var(--fn-border-secondary); background:var(--fn-bg-primary); }
-.chat-session-title { min-width:0; max-width:70%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; background:transparent;
+
+/* The wordmark.
+ *
+ * Big letters, thin strokes, and nothing but the theme's own text colour.
+ *
+ * The size and the light weight are what make it a logo rather than a label: a
+ * wordmark set large and thin with a lot of air between the letters reads as
+ * something designed, and a wordmark set at body size and bold reads as a
+ * heading someone was already using. The bar stays a bar — the head grew by
+ * four pixels, not by a row.
+ *
+ * The colour is the part that matters most and is deliberately not the brand
+ * pink. Measured on this surface, the brand runs from 2.2:1 to 5.7:1 across the
+ * eight light palettes — amber is 2.2:1 and emerald 2.5:1, below even the 3:1
+ * that large text is allowed, and four of the eight are under the 4.5:1 that
+ * ordinary text needs. A brand-coloured wordmark would be a logo you can read
+ * on black and squint at on white, which is the opposite of what a wordmark is
+ * for. `--fn-text-primary` is 15.0:1 on the dark palette and 17.7:1 on the
+ * light one, so it is legible in both by construction rather than by having
+ * been checked twice, and it still flips with every palette and every theme.
+ *
+ * The scale is the reader's, not ours: it multiplies with the same font-size
+ * setting as everything else, because a logo is not a reason to ignore the
+ * preference that text is being made larger.
+ *
+ * The capitals are the other half of what makes it a wordmark, and they are
+ * done in CSS so the text underneath stays "O Browser" — a screen reader
+ * announces the name, and a capitalised brand spelled out in capitals is read
+ * as a string of letters. */
+.chat-wordmark { flex:0 1 auto; min-width:0; overflow:hidden;
+  font-family:var(--fn-font-ui);
+  font-size:calc(18px * var(--fn-fs-scale,1));
+  font-weight:200; letter-spacing:.16em; line-height:1.15;
+  text-transform:uppercase;
+  color:var(--fn-text-primary); white-space:nowrap; user-select:none;
+  /* letter-spacing puts a gap after the last letter too, which would push the
+     session title one step to the right; this gives that step back */
+  margin-right:calc(10px - .16em); }
+/* The wordmark yields before the session title does.
+ *
+ * The title is a button — it renames the session — and a button that has been
+ * squeezed to nothing is not a title, it is a gap. The mark is the newer thing
+ * in this bar and the cheaper thing to lose, so it steps down first and goes
+ * away last, and only at a width where it could not have fitted beside the title
+ * whatever its size.
+ *
+ * These are measured against the chat, not the screen, because that is the box
+ * the mark has to fit inside. Two things make the screen the wrong ruler: the
+ * session sidebar takes 264px away when it is open, and the same element is
+ * moved into the floating window, which has a width of its own.
+ *
+ * The floor underneath all of it is that the mark may shrink but never widens
+ * the bar. The bar is the layout, and a logo that pushes the close button off
+ * the end of it has broken the page in order to advertise itself. */
+@container chat (max-width: 430px) {
+  .chat-wordmark { font-size:calc(15px * var(--fn-fs-scale,1)); letter-spacing:.13em; }
+}
+@container chat (max-width: 250px) {
+  .chat-wordmark { display:none; }
+}
+.chat-session-title { min-width:3.5em; max-width:70%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; background:transparent;
   color:var(--fn-text-primary); cursor:pointer; padding:4px 0; font:600 12px var(--fn-font-ui); text-align:left; }
 .chat-session-title:hover { color:var(--fn-text-secondary); }
 .chat-head-btn { display:grid; place-items:center; width:25px; height:25px; border:1px solid transparent; border-radius:var(--fn-radius-sm);
@@ -1320,7 +1386,12 @@ dialog.docdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 1
 /* ----------------------- layout inside the window ---------------------- */
 
 /* Measured against the window, not the screen: a media query cannot see how wide
-   the window is, and this window is resizable. */
+   the window is, and this window is resizable.
+   The wordmark goes with it. The chat element is moved into this window whole,
+   so the mark comes along — and a narrow card is the one place there is no room
+   for it. The window already says which app it is in its own title bar, and the
+   session title in this bar is what somebody is actually reading. */
+.floatwin .chat-wordmark { display:none; }
 @container fw (max-width: 400px) {
   .floatwin .chat { --oc-gutter:11px; }
   .floatwin .fw-title { display:none; }
@@ -1624,6 +1695,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
           <div class="chathome has-sidebar" id="chatHome">
               <div class="chat">
               <header class="chat-panel-head" id="chatPanelHead">
+                <span class="chat-wordmark">O Browser</span>
                 <button class="chat-session-title" id="chatSessionTitle" type="button" title="Rename session" aria-label="Rename current session">Chat Session</button>
                 <span class="grow"></span>
                 <button class="chat-head-btn chat-close" id="chatCloseFloat" type="button" title="Close floating chat" aria-label="Close floating chat" hidden><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
