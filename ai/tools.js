@@ -18,15 +18,16 @@ const TOOLS = [
   {
     name: 'browser_read',
     caps: ['dom'],
-    description: 'Read a page: url, title, visible text, headings, links, buttons and form fields, each with a CSS selector and a ref you can act on. Always do this before acting.',
+    description: 'Read a page: url, title, visible text, headings, links, buttons and form fields, each with a CSS selector and a ref you can act on. Always do this before acting. A long page is cut, and says so in textTruncated; pass a selector to read the part you need instead of the whole page.',
     parameters: {
       type: 'object',
       properties: {
         tabId: { type: 'string', description: 'The tab to act on, as tab_<id> from browser_tabs. Defaults to the tab you already own.' },
+        selector: { type: 'string', description: 'Read only this region, as a CSS selector, and take the text from it. Use this when a whole-page read came back truncated and you need the part that was cut, or when you only care about one part of the page. Refused if it matches nothing, rather than quietly reading the whole page.' },
       },
       additionalProperties: false,
     },
-    run: (ctx, a) => ctx.browser.action({ action: 'read', tabId: asString(a.tabId) || undefined }),
+    run: (ctx, a) => ctx.browser.action({ action: 'read', tabId: asString(a.tabId) || undefined, selector: asString(a.selector) || undefined }),
   },
   {
     name: 'browser_navigate',

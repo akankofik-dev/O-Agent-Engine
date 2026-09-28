@@ -991,11 +991,28 @@ const READ_EXPR = String.raw`(() => {
     selector: sel(i), value: (i.type === 'password') ? '' : String(i.value || '').slice(0, 120)
   }));
   const headings = take('h1, h2, h3', 30).map(h => ({ level: h.tagName, text: flat(h).slice(0, 160) }));
-  const text = (document.body ? document.body.innerText : '')
-    .replace(/\n{3,}/g, '\n\n').slice(0, 12000);
+  /* The body text is the part the agent reads to understand the page, so cutting
+     it without saying so is the one truncation that can change what the agent
+     believes: it reads a page whose tail it never saw and has no way to tell.
+     Every other list here has both a cap and a way past it — a ref, a scroll.
+     Text had a cap and no way past it, and the engine-side clip never fired
+     because the value was already exactly at its own limit.
+
+     So the cut leaves the mark, and __SEL__ makes the rest reachable: pass a
+     selector and the text is that region instead of the whole page, which is
+     the same door the other lists already have. Silently shortening the page is
+     not a token saving; it is a wrong answer delivered confidently. */
+  const root = __SEL__ ? (document.querySelector(__SEL__) || null) : document.body;
+  const FULL = (root ? (root.innerText || '') : '');
+  const TEXT_CAP = 12000;
+  const cleaned = FULL.replace(/\n{3,}/g, '\n\n');
+  const textTruncated = cleaned.length > TEXT_CAP;
+  const text = textTruncated
+    ? cleaned.slice(0, TEXT_CAP) + '\n… [text continues — ' + (cleaned.length - TEXT_CAP) + ' more characters. Pass a different selector to browser_read to read another part of the page]'
+    : cleaned;
   return {
     url: location.href, title: document.title, lang: document.documentElement.lang || '',
-    readyState: document.readyState, text, headings, links, buttons, inputs
+    readyState: document.readyState, text, textTruncated, textLength: cleaned.length, headings, links, buttons, inputs
   };
 })()`;
 
@@ -1179,7 +1196,20 @@ async function doActionOn(act, body, sess, sid) {
       return { waited: Number(body.ms) || 500 };
     case 'read': {
       const tab = BROWSER.resolve(sess.tabId);
-      const snap = await evalValue(sid, READ_EXPR);
+      /* A selector narrows what is read to that region: it is the way past the
+         text cap, so the note left in a truncated read is advice the agent can
+         actually take. An unmatched selector is refused here rather than
+         quietly reading the whole page — a typo that returns everything is how
+         a request to look at one part of a page turns into the page. */
+      const wantSel = (body.selector === undefined || body.selector === null) ? '' : String(body.selector);
+      if (wantSel) {
+        const found = await evalValue(sid, '!!document.querySelector(' + JSON.stringify(wantSel) + ')');
+        if (!found) throw new Error('no element matches selector: ' + wantSel);
+      }
+      // replaceAll, not replace: the expression mentions the placeholder twice,
+      // and a plain replace leaves the second one as the literal string
+      // __SEL__ inside the page, where it is a ReferenceError, not a selector
+      const snap = await evalValue(sid, READ_EXPR.split('__SEL__').join(JSON.stringify(wantSel || null)));
       if (!snap) throw new Error('could not read the page');
       // every selector handed out gets a ref, tied to this tab and this
       // generation, so the agent can act on an element without re-typing CSS
