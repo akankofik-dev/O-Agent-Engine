@@ -2562,9 +2562,14 @@ function shellExec(command, timeoutMs) {
 
   // One argument, handed to the shell this machine actually has. A hardcoded
   // cmd.exe is not portability, it is an ENOENT on every other platform.
+  //
+  // Choosing the executable is not the same as choosing its flags. On Windows
+  // findShell() tries Git's bash.exe before COMSPEC, so the shell is very often
+  // bash — and /d /s /c are cmd.exe flags, which bash reads as "run the script
+  // named /d" and answers 127. The platform decides nothing here; the shell does.
   const win = IS_WINDOWS;
   const file = SHELL_FILE;
-  const args = win ? ['/d', '/s', '/c', cmd] : ['-c', cmd];
+  const args = win && !SHELL_IS_BASH ? ['/d', '/s', '/c', cmd] : ['-c', cmd];
 
   return new Promise((resolve) => {
     const out = [], err = [];
