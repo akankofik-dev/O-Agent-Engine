@@ -334,11 +334,26 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
    and the session list lives in a right sidebar that can be toggled away —
    the same four zones the OpenCode TUI draws. The status line travels with
    the .chat element, so the floating windows get it for free. */
+/* One left edge for the whole column.
+ *
+ * The conversation is held to a reading measure and centred in the column, which
+ * is what keeps a long answer from running the full width of a wide window. But
+ * the header, the status line and the tab strip were padded by the gutter alone,
+ * so on any column wider than the measure their content started further out than
+ * the messages by exactly half the difference — twelve pixels here, and a lot
+ * more on a wide screen. Four left edges, none of them the one the eye lands on.
+ *
+ * So all three are centred on the same measure as the conversation, and the
+ * gutter is what is left over when the column is narrower than that. max() does
+ * both without a breakpoint: the content lines up with the messages on a wide
+ * column, and simply uses the gutter on a narrow one, which is the same number
+ * it would have used anyway. */
 .chat > .oc-status { flex:none; display:flex; align-items:center; gap:8px; min-width:0;
-  padding:3px calc(14px * var(--fn-dens));
+  padding:3px max(var(--oc-gutter), calc((100% - var(--oc-measure)) / 2 + var(--oc-gutter)));
   border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary);
   font-size:10.5px; color:var(--fn-text-tertiary); }
-.chat-panel-head { flex:none; display:flex; align-items:center; gap:5px; min-height:36px; padding:0 var(--oc-gutter);
+.chat-panel-head { flex:none; display:flex; align-items:center; gap:5px; min-height:36px;
+  padding:0 max(var(--oc-gutter), calc((100% - var(--oc-measure)) / 2 + var(--oc-gutter)));
   border-bottom:1px solid var(--fn-border-secondary); background:var(--fn-bg-primary); }
 
 /* The wordmark, standing in the space between the conversation and the composer.
@@ -407,7 +422,8 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
 .chat-head-btn { display:grid; place-items:center; width:25px; height:25px; border:1px solid transparent; border-radius:var(--fn-radius-sm);
   background:transparent; color:var(--fn-text-tertiary); cursor:pointer; padding:0; }
 .chat-head-btn:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
-.chat-session-tabs { display:flex; align-items:flex-end; gap:2px; min-height:30px; padding:3px var(--oc-gutter) 0;
+.chat-session-tabs { display:flex; align-items:flex-end; gap:2px; min-height:30px;
+  padding:3px max(var(--oc-gutter), calc((100% - var(--oc-measure)) / 2 + var(--oc-gutter))) 0;
   border-bottom:1px solid var(--fn-border-secondary); background:var(--fn-bg-secondary); overflow-x:auto; scrollbar-width:none; }
 .chat-session-tabs::-webkit-scrollbar { display:none; }
 .chat-session-tab { display:inline-flex; align-items:center; gap:6px; max-width:190px; min-height:26px; padding:0 9px;
@@ -425,10 +441,29 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
   white-space:nowrap; font-weight:500; color:var(--fn-text-tertiary); }
 .oc-status .oc-model { flex:none; color:var(--fn-text-tertiary); }
 .oc-status .oc-provider { flex:none; color:var(--fn-text-tertiary); }
-.oc-side-toggle { display:flex; align-items:center; justify-content:center; flex:none;
-  width:20px; height:20px; border:1px solid var(--fn-border-tertiary); border-radius:4px;
-  background:transparent; color:var(--fn-text-tertiary); cursor:pointer; font-size:11px; line-height:1; padding:0; }
-.oc-side-toggle:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
+/* The session-list toggle, which lives in the panel header now rather than in
+ * the status line.
+ *
+ * It is a control over what the panel shows, so it belongs with the other two —
+ * the session title and the close button — and it is styled by them: same 25px
+ * box, same borderless idle, same hover. It used to sit at the far left of the
+ * status bar at the bottom, which put a view control a whole screen away from the
+ * thing it views and made the status line look like a toolbar, which it is not.
+ * It is a status line: it reports, and the controls are upstairs.
+ *
+ * It is tinted while the list is showing, so it reads as a toggle with a state
+ * rather than a glyph whose meaning you have to remember, and its label says
+ * what pressing it will do — which is the half of a toggle people leave out and
+ * then have to hover to find out.
+ *
+ * Below 900px the list itself is not in the layout, so the button goes with it:
+ * a control that cannot change anything is worse than no control, and one in
+ * the header is the most obvious control on the panel. */
+.chat-head-btn.oc-side-toggle { font-size:12px; line-height:1; }
+.chat-head-btn.oc-side-toggle[aria-expanded="true"] { color:var(--fn-text-primary); }
+@media (max-width:900px) {
+  .chat-head-btn.oc-side-toggle { display:none; }
+}
 #p-chat .chathome.has-sidebar { display:grid; grid-template-columns:minmax(0,1fr) 264px; }
 .oc-side { display:flex; flex-direction:column; min-height:0; min-width:0;
   border-left:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary); }
@@ -1076,7 +1111,8 @@ body.tab-chat .wb-head { display:none; }
 @media (prefers-reduced-motion:reduce) { .tooldetail .trow.now .tstate, .thinking .dots i { animation:none; opacity:1; } }
 
 /* composer */
-.chatfoot { flex:none; padding:calc(10px * var(--fn-dens)) var(--oc-gutter) calc(16px * var(--fn-dens));
+.chatfoot { flex:none;
+  padding:calc(10px * var(--fn-dens)) max(var(--oc-gutter), calc((100% - var(--oc-measure)) / 2 + var(--oc-gutter))) calc(16px * var(--fn-dens));
   border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-primary); }
 .chatmeta { font-size:10.5px; color:var(--fn-text-tertiary); margin:0 0 5px 2px; display:flex; gap:8px; align-items:center; }
 .chatmeta a { color:var(--fn-text-tertiary); text-decoration:none; border-bottom:1px dotted var(--fn-border-tertiary); }
@@ -1225,7 +1261,15 @@ dialog.docdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 1
   border-top:1px solid var(--fn-border-secondary); }
 
 .appear { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }@media (max-width:900px) {
-  .chatlog, .chatfoot { padding-left:14px; padding-right:14px; }
+  /* A narrower screen gets a narrower gutter by changing the one value that
+     everything else reads, not by adding padding to two of the three places that
+     align to it. That is what this used to do, and the column ended up with four
+     different left edges: the header and the status line at 18px, the composer
+     at 14px, and the messages at 32px — because the log's 14px sat on top of the
+     18px .chatinner already gives them. The log carries no horizontal padding of
+     its own; .chatinner owns the gutter, and everything that lines up with the
+     messages reads the same variable. */
+  .chat { --oc-gutter: 14px; }
   .msg .body { font-size:13.5px; }}
 
 /* ============================ controls ============================ */
@@ -1769,6 +1813,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
               <header class="chat-panel-head" id="chatPanelHead">
                 <button class="chat-session-title" id="chatSessionTitle" type="button" title="Rename session" aria-label="Rename current session">Chat Session</button>
                 <span class="grow"></span>
+                <button class="chat-head-btn oc-side-toggle" id="ocSideToggle" type="button" title="Hide the session list" aria-label="Hide the session list" aria-expanded="true" aria-controls="ocSide">▤</button>
                 <button class="chat-head-btn chat-close" id="chatCloseFloat" type="button" title="Close floating chat" aria-label="Close floating chat" hidden><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
               </header>
               <div class="chat-session-tabs" id="chatSessionTabs" role="tablist" aria-label="Open chat sessions"><button class="chat-new-tab" id="chatNew" type="button" title="New session" aria-label="New session"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
@@ -1809,7 +1854,6 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                 </div>
               </div>
               <div class="oc-status" id="ocStatus">
-                <button class="oc-side-toggle" id="ocSideToggle" type="button" title="Toggle session sidebar" aria-label="Toggle session sidebar" aria-expanded="false">▤</button>
                 <span class="oc-session" id="sesName"></span>
                 <span class="oc-model" id="ocModel">—</span>
                 <span class="oc-provider" id="ocProvider"></span>
@@ -6838,6 +6882,12 @@ function wireSessions() {
       side.hidden = !on;
       if (chathome) chathome.classList.toggle("has-sidebar", on);
       toggle.setAttribute("aria-expanded", on ? "true" : "false");
+      // a toggle's label is what pressing it will do, not what it currently is;
+      // a screen reader user gets that from the name, and everyone else gets it
+      // from the tooltip
+      const what = on ? "Hide the session list" : "Show the session list";
+      toggle.title = what;
+      toggle.setAttribute("aria-label", what);
       try { localStorage.setItem("octop:oc-sidebar", on ? "1" : "0"); } catch { }
     };
     let saved = null;
