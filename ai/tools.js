@@ -12,6 +12,7 @@
 const asString = v => (v === undefined || v === null ? '' : String(v));
 
 const skills = require('./skills');
+const rules = require('./rules');
 
 /** every tool: name, capability tags, JSON schema, runner */
 const TOOLS = [
@@ -221,6 +222,28 @@ const TOOLS = [
       required: ['command'], additionalProperties: false,
     },
     run: (ctx, a) => ctx.shell.exec(asString(a.command), a.timeoutMs),
+  },
+  {
+    name: 'rule_edit',
+    caps: ['rules'],
+    description: [
+      'Propose a correction to one of your own operating rules.',
+      'This does NOT change anything yet: the change waits until the user reads it and accepts it, and it is in force from then on. Never report a proposed rule as already in effect.',
+      'Use it when a rule you were given is wrong, missing, or contradicts what this machine actually does — and say in the reason which rule and what made you think so.',
+      'You may only change name, description and instruction. You may NOT change what tools a rule grants (requires), and you may not invent new rules. Those are the user\'s to decide, not yours, because they are what decides what you are allowed to do.',
+      'A proposal for the same rule and field that is already waiting replaces it rather than adding a second.',
+    ].join(' '),
+    parameters: {
+      type: 'object',
+      properties: {
+        skillId: { type: 'string', description: 'The rule to change: browser-research, web-extraction, screenshot-analysis, coding or terminal.' },
+        field: { type: 'string', enum: rules.EDITABLE, description: 'Which part of the rule to change.' },
+        value: { type: 'string', description: 'The full replacement text for that part, not a diff and not an addition.' },
+        reason: { type: 'string', description: 'Why the current text is wrong, in one or two sentences. An unexplained change is refused.' },
+      },
+      required: ['skillId', 'field', 'value', 'reason'], additionalProperties: false,
+    },
+    run: (ctx, a) => rules.propose(a, 'agent'),
   },
 ];
 

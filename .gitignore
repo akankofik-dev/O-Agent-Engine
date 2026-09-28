@@ -12,5 +12,18 @@ node_modules/
 data/agent-config.json
 data/automation.json
 
+# The agent's own rules, and the changes waiting for a person to accept them.
+#
+# Ignored for the same reason as the two above: data/ is per-machine state, not
+# source. rules.json is not only this machine's, though — it carries a history
+# with a reason and an author on every entry, which is a record of what a person
+# decided about their own agent and why. A `git add .` after accepting a change
+# would put that in a shared history, and the whole premise of the feature is that
+# applying a rule is a person's decision rather than something that happens.
+#
+# Sharing an edited rule is a deliberate act and wants an export, not an accident.
+data/rules.json
+data/rule-proposals.json
+
 # scratch: chat uploads, swept an hour after they arrive
 data/inbox/

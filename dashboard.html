@@ -1885,6 +1885,26 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
   background:var(--fn-color-brand); animation:tpulse 1.15s ease-in-out infinite; }
 /* the engine list: a dot per engine, its real state, and nothing that lies */
 .au-list { display:flex; flex-direction:column; gap:1px; margin-top:9px; }
+.ru-item { border:1px solid var(--fn-border-secondary); border-radius:var(--fn-card-radius);
+  padding:9px 11px; margin-bottom:8px; background:var(--fn-bg-secondary); }
+.ru-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12.5px; }
+.ru-field { font-weight:600; }
+.ru-when { color:var(--fn-color-info); font-size:11.5px; }
+.ru-reason { color:var(--fn-color-info); font-size:11.5px; margin:6px 0 0; }
+.ru-diff { margin:7px 0 0; display:grid; gap:5px; font-size:11.5px; line-height:1.45; }
+.ru-old, .ru-new { padding:5px 7px; border-radius:4px; word-break:break-word; }
+.ru-old { background:var(--fn-bg-tertiary); color:var(--fn-color-info); }
+.ru-old b, .ru-new b { display:block; font-size:10px; text-transform:uppercase;
+  letter-spacing:.05em; opacity:.7; margin-bottom:2px; }
+.ru-new { background:var(--fn-bg-elevated); }
+.ru-acts { display:flex; gap:6px; margin-top:8px; }
+.ru-list { margin-top:4px; }
+.ru-hist { font-size:11.5px; color:var(--fn-color-info); }
+.ru-hist-row { display:flex; align-items:center; gap:8px; padding:5px 0;
+  border-top:1px solid var(--fn-border-secondary); }
+.ru-hist-row:first-child { border-top:0; }
+.ru-hist-row .ru-why { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
 .au-row { display:flex; align-items:center; gap:9px; padding:7px 2px; min-height:38px;
   border-top:1px solid var(--fn-border-secondary); font-size:12.5px; }
 /* 38px is the height the install button makes, so it is stated rather than
@@ -2344,6 +2364,22 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                     <button class="btn sm" id="auCheck" type="button" title="Ask the server what is really installed">Check again</button>
                     <span class="ai-note" id="auShared"></span>
                   </div>
+                </div>
+              </details>
+
+              <details class="setsection" id="secRules">
+                <summary>Agent rules <span class="hint" id="ruHint">nothing waiting</span></summary>
+                <div class="setbody">
+                  <p class="set-note">The agent can propose a correction to its own guidance, and it has no
+                    way to apply one. Nothing here takes effect until you accept it, and every accepted
+                    change can be put back. It cannot change which tools a rule grants — that is yours.</p>
+                  <div class="ru-list" id="ruPending"></div>
+                  <div class="acts" style="display:flex;gap:6px;margin-top:11px">
+                    <button class="btn sm" id="ruCheck" type="button" title="Ask the server what is waiting">Check again</button>
+                    <button class="btn sm" id="ruReset" type="button" title="Drop every accepted change and go back to the shipped guidance">Reset to shipped</button>
+                    <span class="ai-note" id="ruVersion"></span>
+                  </div>
+                  <div class="ru-hist" id="ruHistory" style="margin-top:13px"></div>
                 </div>
               </details>
 
@@ -3824,6 +3860,7 @@ function wireChat() {
   wireAddAi();
   wireActivity();
   wireAutomation();
+  wireRules();
   wireVoice();
   wireSessions();
   paintCurrentAi();
@@ -4328,6 +4365,7 @@ const AGENT = {
 
 const TOOL_LABELS = {
   browser: "Browser", screenshot: "Screenshot", dom: "DOM", javascript: "JavaScript", terminal: "Terminal",
+  rules: "Edit own rules",
 };
 const PROTOCOL_LABELS = {
   "openai-compatible": "OpenAI-compatible",
@@ -8146,6 +8184,159 @@ function wireAutomation() {
   const btn = $("auCheck");
   if (btn) btn.addEventListener("click", () => loadAutomation(true));
   loadAutomation(false);
+}
+
+/* ---- the agent's own rules: propose, and a person decides ---- */
+
+const RU = { state: null, busy: false };
+
+/** "just now" / "14 minutes ago" / a date. A review queue is read by how fresh it
+ *  is, not by an ISO string, and the one timestamp format this file has is used
+ *  once and is not a queue. */
+function ruAgo(iso) {
+  const t = Date.parse(iso || "");
+  if (!t || t !== t) return "";
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 45) return "just now";
+  if (s < 5400) return Math.round(s / 60) + " minutes ago";
+  if (s < 172800) return Math.round(s / 3600) + " hours ago";
+  return new Date(t).toLocaleDateString();
+}
+
+function ruEl(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function paintRules() {
+  const pending = $("ruPending");
+  const hist = $("ruHistory");
+  const ver = $("ruVersion");
+  const hint = $("ruHint");
+  const st = RU.state;
+  if (!pending || !st) return;
+
+  pending.textContent = "";
+  if (!st.pending.length) {
+    pending.appendChild(ruEl("div", "set-empty", "Nothing waiting. The agent has not proposed a change."));
+  } else {
+    for (const p of st.pending) {
+      const box = ruEl("div", "ru-item");
+
+      const head = ruEl("div", "ru-head");
+      head.appendChild(ruEl("span", "ru-field", p.skillName + " · " + p.field));
+      const when = ruAgo(p.at);
+      if (when) head.appendChild(ruEl("span", "ru-when", when));
+      head.appendChild(ruEl("span", "ru-when", "by " + (p.by || "agent")));
+      box.appendChild(head);
+
+      const diff = ruEl("div", "ru-diff");
+      const old = ruEl("div", "ru-old");
+      old.appendChild(ruEl("b", null, "now in effect"));
+      old.appendChild(document.createTextNode(p.from || "(empty)"));
+      const nw = ruEl("div", "ru-new");
+      nw.appendChild(ruEl("b", null, "what it would become"));
+      nw.appendChild(document.createTextNode(p.to || "(empty)"));
+      diff.append(old, nw);
+      box.appendChild(diff);
+
+      box.appendChild(ruEl("p", "ru-reason", p.reason || "(no reason given)"));
+
+      const acts = ruEl("div", "ru-acts");
+      const yes = ruEl("button", "btn sm", "Accept");
+      yes.type = "button";
+      yes.title = "Apply it. Takes effect from the next message the agent receives.";
+      yes.addEventListener("click", () => rulesAct("approve", { id: p.id }));
+      const no = ruEl("button", "btn sm", "Reject");
+      no.type = "button";
+      no.title = "Throw the proposal away. The rule is left as it is.";
+      no.addEventListener("click", () => rulesAct("reject", { id: p.id }));
+      acts.append(yes, no);
+      box.appendChild(acts);
+
+      pending.appendChild(box);
+    }
+  }
+
+  if (hint) {
+    const waiting = st.pending.length;
+    hint.textContent = waiting
+      ? waiting + (waiting === 1 ? " change waiting for you" : " changes waiting for you")
+      : (st.overridden.length ? "none waiting, " + st.overridden.length + " accepted" : "nothing waiting");
+  }
+
+  if (ver) {
+    const n = st.overridden.length;
+    ver.textContent = n ? n + " rule" + (n === 1 ? "" : "s") + " changed from the shipped text"
+                        : "all rules are as shipped";
+  }
+
+  if (hist) {
+    hist.textContent = "";
+    if (!st.history.length) {
+      hist.appendChild(ruEl("div", "set-empty", "No changes accepted yet."));
+    } else {
+      hist.appendChild(ruEl("div", null, "History"));
+      for (const h of st.history.slice().reverse()) {
+        const row = ruEl("div", "ru-hist-row");
+        const what = h.skillId ? h.skillId + " · " + h.field : "all rules";
+        const who = ruEl("span", "ru-why", what + " — " + (h.reason || "no reason given"));
+        row.appendChild(who);
+        row.appendChild(ruEl("span", "ru-when", ruAgo(h.at)));
+        /* Undo is only offered for an entry that came from a person making a
+           change; the entries that record an undo are history, not actions. */
+        if (h.skillId) {
+          const u = ruEl("button", "btn sm", "Undo");
+          u.type = "button";
+          u.title = "Put back what was in effect before this change";
+          u.addEventListener("click", () => rulesAct("revert", { version: h.version }));
+          row.appendChild(u);
+        }
+        hist.appendChild(row);
+      }
+    }
+  }
+}
+
+/** one place every decision goes through. The server answers with the whole
+ *  state, so the panel is repainted from the server's answer rather than from a
+ *  guess about what the click did. */
+async function rulesAct(action, body) {
+  if (RU.busy) return;
+  RU.busy = true;
+  try {
+    const r = await API.post("/api/rules/" + action, body || {});
+    if (r && r.ok) { RU.state = r; paintRules(); }
+    else chatNote("error", (r && r.error) || "that did not save");
+  } catch (e) {
+    /* API.post already throws the server's own words, which is the useful part */
+    chatNote("error", (e && e.message) || "could not reach the server");
+  } finally {
+    RU.busy = false;
+  }
+}
+
+async function loadRules() {
+  try {
+    RU.state = await API.get("/api/rules");
+    paintRules();
+  } catch (e) {
+    const list = $("ruPending");
+    if (list) {
+      list.textContent = "";
+      list.appendChild(ruEl("div", "au-row", "Could not ask the server what is waiting."));
+    }
+  }
+}
+
+function wireRules() {
+  const check = $("ruCheck");
+  if (check) check.addEventListener("click", () => loadRules());
+  const reset = $("ruReset");
+  if (reset) reset.addEventListener("click", () => rulesAct("reset", {}));
+  loadRules();
 }
 
 function wireActivity() {

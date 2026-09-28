@@ -17,8 +17,8 @@ const DIR = path.join(__dirname, '..', 'data');
 const FILE = path.join(DIR, 'agent-config.json');
 
 const PROTOCOLS = ['openai-compatible', 'anthropic-messages', 'ollama'];
-const TOOL_KEYS = ['browser', 'screenshot', 'dom', 'javascript', 'terminal'];
-const DEFAULT_TOOLS = { browser: true, screenshot: true, dom: true, javascript: true, terminal: false };
+const TOOL_KEYS = ['browser', 'screenshot', 'dom', 'javascript', 'terminal', 'rules'];
+const DEFAULT_TOOLS = { browser: true, screenshot: true, dom: true, javascript: true, terminal: false, rules: false };
 
 /* ----------------------------- helpers ------------------------------- */
 

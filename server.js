@@ -33,6 +33,7 @@ const aiStore = require('./ai/store');
 const aiProviders = require('./ai/providers');
 const aiEngine = require('./ai/engine');
 const aiSkills = require('./ai/skills');
+const aiRules = require('./ai/rules');
 const agentFiles = require('./ai/agentfiles');
 const aiCompat = require('./ai/compat');
 const aiAttachments = require('./ai/attachments');
@@ -2038,8 +2039,35 @@ async function handleApi(req, res, pathname) {
 
   /* ---- per-agent documents: SOUL.md / MEMORY.md, skills, context ---- */
 
+  /* ---- the agent's own operating rules ---- */
+
+  /* An agent may propose; a person applies. Nothing here is reachable from a
+   * tool call — rule_edit writes the proposals file and the store never opens
+   * the rules file on that path. */
+
+  if (pathname === '/api/rules' && req.method === 'GET') {
+    return sendJson(res, 200, { ok: true, ...aiRules.state() });
+  }
+
+  if (pathname.startsWith('/api/rules/') && req.method === 'POST') {
+    const action = pathname.slice('/api/rules/'.length);
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, error: 'bad json: ' + e.message }); }
+
+    const out =
+      action === 'approve' ? aiRules.approve(String(body.id || ''))
+      : action === 'reject'  ? aiRules.reject(String(body.id || ''))
+      : action === 'revert'  ? aiRules.revert(body.version)
+      : action === 'reset'   ? aiRules.reset()
+      : null;
+    if (!out) return sendJson(res, 404, { ok: false, error: 'no such rules action: ' + action });
+    if (!out.ok) return sendJson(res, 400, { ok: false, error: out.error });
+    return sendJson(res, 200, { ok: true, ...out, ...aiRules.state() });
+  }
+
   if (pathname === '/api/agents/skills' && req.method === 'GET') {
-    return sendJson(res, 200, { ok: true, skills: aiSkills.CATALOG });
+    return sendJson(res, 200, { ok: true, skills: aiSkills.catalog() });
   }
 
   if (pathname === '/api/agents/export' && req.method === 'GET') {
