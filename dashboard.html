@@ -1528,8 +1528,13 @@ dialog.docdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 1
 
 /* ------------------------------ header ------------------------------ */
 
+/* The floating chat has two bars at the top: this one, which drags and closes,
+   and the chat's own, which carries the session tabs. They used to have
+   different backgrounds and a rule between them, which is what made 58px of
+   header feel like two separate strips. The rule moves down to the bottom of
+   the pair, so the two read as one header. */
 .fw-head { flex:none; display:flex; align-items:center; gap:8px; padding:7px 7px 7px 12px;
-  background:var(--fn-bg-secondary); border-bottom:1px solid var(--fn-border-primary);
+  background:var(--fn-bg-secondary); border-bottom:none;
   cursor:grab; user-select:none; touch-action:none; }
 .floatwin.fw-min .fw-head { border-bottom:none; border-radius:inherit; }
 .floatwin.fw-max .fw-head { border-radius:0; }
@@ -1550,8 +1555,8 @@ dialog.docdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 1
 /* ------------------------------- body ------------------------------- */
 
 .fw-body { flex:1; min-height:0; min-width:0; display:flex; }
-.floatwin.fw-min .fw-body { display:none; }
 .floatwin.fw-min .fw-sub { display:none; }
+.floatwin.fw-min .fw-body { display:none; }
 
 /* A minimized window is just its title bar. The height comes from the header
    itself, so there is never a strip of dead space under it. */
@@ -1626,6 +1631,15 @@ dialog.docdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 1
    It is hidden only where it would not fit. At full size the mark is 392px, and a
    window narrower than that would show it shrunk to a stamp, which is worse than
    showing nothing. */
+/* The chat's bar, inside a window.
+   Its padding is set for the page, where it stays aligned to a measure; inside
+   a window there is no measure, so it indented itself by a calculation that
+   resolved to almost nothing and left the buttons 11px from the edge while the
+   window's own controls sat 7px away. It lines up with them instead. */
+.floatwin .chat-panel-head { background:var(--fn-bg-secondary);
+  border-bottom:1px solid var(--fn-border-primary);
+  padding:0 7px 0 12px; }
+
 .floatwin .chat-mark { display:flex; }
 @container fw (max-width: 380px) {
   .floatwin .chat-mark { display:none; }
@@ -1943,7 +1957,6 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                 <div class="chat-session-tabs" id="chatSessionTabs" role="tablist" aria-label="Open chat sessions"><button class="chat-new-tab" id="chatNew" type="button" title="New session" aria-label="New session"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
                 <span class="grow"></span>
                 <button class="chat-head-btn oc-side-toggle" id="ocSideToggle" type="button" title="Hide the session list" aria-label="Hide the session list" aria-expanded="true" aria-controls="ocSide">▤</button>
-                <button class="chat-head-btn chat-close" id="chatCloseFloat" type="button" title="Close floating chat" aria-label="Close floating chat" hidden><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
               </header>
               <div class="chatlog" id="chatLog" role="log" aria-live="polite" aria-label="Octop conversation">
                 <div class="chatempty" id="chatEmpty"><span class="oc-empty-title">O Browser is ready.</span> <span class="oc-empty-desc">Ask O Browser to browse, inspect, or explain.</span><div class="empty-prompts"><button type="button" data-prompt="Open the browser and inspect the current page">Inspect the current page</button><button type="button" data-prompt="Summarize what is open in the browser">Summarize the browser</button><button type="button" data-prompt="Help me automate a browser task">Plan an automation</button></div></div>
@@ -3548,9 +3561,7 @@ function wireChat() {
   // the control now, so there is nothing to wire here
   const title = $("chatSessionTitle");
   if (title) title.addEventListener("click", () => sesRenameActive());
-  if ($("chatCloseFloat")) $("chatCloseFloat").addEventListener("click", () => {
-    if (CHAT.host && CHAT.host !== "page") closeFloat(CHAT.host);
-  });
+
   if ($("chatModelChip")) $("chatModelChip").addEventListener("click", openChangeModel);
   if (chatInput) {
     chatHistoryLoad();
@@ -3601,7 +3612,6 @@ function wireChat() {
   }
   paintAttachments();
   paintChatMeta();
-  if ($("chatCloseFloat")) $("chatCloseFloat").hidden = CHAT.host === "page" || !CHAT.host;
   wireAddAi();
   wireActivity();
   wireAutomation();
@@ -5415,10 +5425,12 @@ function floatBuild(host) {
   const title = document.createElement("span");
   title.className = "fw-title";
   title.textContent = floatShape(host).title;
+  /* The subtitle is the window's status line, not a label: paintFloatHeader
+     writes host · profile · "working…" into it and toggles fw-busy on the same
+     line, which is what pulses the dot while a turn is going. The session window
+     is already called Sessions, so it says nothing rather than saying it twice. */
   const sub = document.createElement("span");
   sub.className = "fw-sub";
-  // the subtitle repeats the host for the chat windows; the session window is
-  // already called Sessions, so it says nothing rather than saying it twice
   sub.textContent = host === "sessions" ? "" : host;
   const ctl = document.createElement("div");
   ctl.className = "fw-ctl";
@@ -5954,8 +5966,7 @@ function mountChat(host) {
     : (FLOAT.windows.get(host) && FLOAT.windows.get(host).open ? FLOAT.windows.get(host).body : home);
   if (chat.parentNode !== target) target.appendChild(chat);
   CHAT.host = host === "page" ? "page" : host;
-  const close = $("chatCloseFloat");
-  if (close) close.hidden = CHAT.host === "page";
+
   composerGrow();
   chatScroll();
   paintChatMeta();
@@ -7118,7 +7129,6 @@ function wireSessions() {
   const toggle = $("ocSideToggle");
   if (toggle) {
     const panelHead = $("chatPanelHead");
-    const closeBtn = $("chatCloseFloat");
 
     /* Where the toggle lives.
      *
@@ -7130,7 +7140,7 @@ function wireSessions() {
      * "two controls pretending to be one" problem one level down. The button
      * opens the window; the window's own ✕ closes it. */
     const rehome = () => {
-      if (panelHead) panelHead.insertBefore(toggle, closeBtn || null);
+      if (panelHead) panelHead.appendChild(toggle);
     };
 
     /* The window is the state. Asking the window is asking the thing itself,
