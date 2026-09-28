@@ -1,0 +1,12 @@
+# The browser this project drives lives here, and it is ~300 MB.
+# It is a build artefact, not source: `node scripts/get-browser.js` puts it back.
+# `git clean -xfd` will remove it, which is the trade for keeping the project
+# self-contained rather than sharing one install across projects.
+.browser/
+
+# Holds the API key. Never commit it — rotate any key that has been committed.
+data/agent-config.json
+data/automation.json
+
+# scratch: chat uploads, swept an hour after they arrive
+data/inbox/
