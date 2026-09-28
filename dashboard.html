@@ -7040,16 +7040,27 @@ function wireSessions() {
     /* Where the floating list starts.
      *
      * Below 900px the list is an overlay rather than a column, and an overlay
-     * pinned to the top of the panel would cover the very button that closes it
-     * — a drawer you cannot shut is a drawer nobody will open. So it starts
-     * below the header and the tab strip instead, and those two are measured
-     * rather than assumed: they are 36px and 30px at the moment, and they are
-     * not obliged to stay that way. */
+     * pinned to the very top would cover the bar the toggle lives in and the tab
+     * strip that switches sessions. So it starts under them — and "under them" is
+     * measured as a position on screen, not as a sum of two heights, because the
+     * two are not two things.
+     *
+     * They used to be: a header and a tab strip below it, and adding their
+     * heights was right. Then the tabs became the top bar and went inside the
+     * header, and the addition quietly became wrong — it counted the bar twice
+     * and opened a 35px hole between the bar and the list, which is the part of
+     * the screen that should have had nothing in it. Taking the lower edge of
+     * whichever is lower is right whether they are stacked or nested, so it does
+     * not have to be updated when the layout changes again. */
     const measureHead = () => {
       if (!chathome) return;
-      const head = $("chatPanelHead"), tabs = document.querySelector(".chat-session-tabs");
-      const h = (head ? head.offsetHeight : 0) + (tabs ? tabs.offsetHeight : 0);
-      chathome.style.setProperty("--oc-side-top", h + "px");
+      const homeTop = chathome.getBoundingClientRect().top;
+      const edges = [$("chatPanelHead"), document.querySelector(".chat-session-tabs")]
+        .filter(Boolean)
+        .map((el) => el.getBoundingClientRect().bottom);
+      if (!edges.length) return;
+      const below = Math.max(...edges) - homeTop;
+      chathome.style.setProperty("--oc-side-top", Math.max(0, Math.round(below)) + "px");
     };
 
     const sideHead = side.querySelector(".oc-side-head");
