@@ -456,14 +456,13 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * what pressing it will do — which is the half of a toggle people leave out and
  * then have to hover to find out.
  *
- * Below 900px the list itself is not in the layout, so the button goes with it:
- * a control that cannot change anything is worse than no control, and one in
- * the header is the most obvious control on the panel. */
+ * It is shown at every width, because a control that is only there sometimes is
+ * a control nobody can rely on finding — and the first version of this hid it
+ * below 900px, where the list was not in the layout, which made it disappear
+ * from the one thing it now lives in. The answer is not to take the button away;
+ * it is to make the list work at the width the button is at. */
 .chat-head-btn.oc-side-toggle { font-size:12px; line-height:1; }
 .chat-head-btn.oc-side-toggle[aria-expanded="true"] { color:var(--fn-text-primary); }
-@media (max-width:900px) {
-  .chat-head-btn.oc-side-toggle { display:none; }
-}
 #p-chat .chathome.has-sidebar { display:grid; grid-template-columns:minmax(0,1fr) 264px; }
 .oc-side { display:flex; flex-direction:column; min-height:0; min-width:0;
   border-left:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary); }
@@ -479,7 +478,20 @@ body.tab-chat .wb { padding:0; overflow:hidden; }
 body.tab-chat .wb-card { border:none; border-radius:0; }
 @media (max-width:900px) {
   #p-chat .chathome.has-sidebar { grid-template-columns:minmax(0,1fr); }
-  #p-chat .oc-side { display:none; }
+  /* Below the width where the list can have a column of its own, it stops
+   * taking one and floats over the right-hand edge instead. Taking a 264px
+   * column out of a 700px panel is not a sidebar, it is a third of the
+   * conversation gone; floating it keeps the chat at full width and keeps the
+   * toggle in charge of something real, which is the whole point of moving the
+   * toggle up there.
+   *
+   * The chat element underneath is inert while the list is up — the list takes
+   * the clicks, and Escape or the toggle puts it away — which is the deal an
+   * overlay offers and the reason it is only used where a column will not fit. */
+  #p-chat .chathome { position:relative; }
+  #p-chat .oc-side { position:absolute; top:var(--oc-side-top,0px); right:0; bottom:0; z-index:3;
+    width:min(264px,78vw); box-shadow:-10px 0 24px rgba(0,0,0,.22); }
+  .chat-head-btn.oc-side-toggle[aria-expanded="true"] { background:var(--fn-bg-hover); }
 }
 /* inside a floating window the status line is narrower, and the provider name
    already lives in the window's own title */
@@ -6878,6 +6890,22 @@ function wireSessions() {
   const toggle = $("ocSideToggle");
   if (side && toggle) {
     const chathome = side.parentElement;
+
+    /* Where the floating list starts.
+     *
+     * Below 900px the list is an overlay rather than a column, and an overlay
+     * pinned to the top of the panel would cover the very button that closes it
+     * — a drawer you cannot shut is a drawer nobody will open. So it starts
+     * below the header and the tab strip instead, and those two are measured
+     * rather than assumed: they are 36px and 30px at the moment, and they are
+     * not obliged to stay that way. */
+    const measureHead = () => {
+      if (!chathome) return;
+      const head = $("chatPanelHead"), tabs = document.querySelector(".chat-session-tabs");
+      const h = (head ? head.offsetHeight : 0) + (tabs ? tabs.offsetHeight : 0);
+      chathome.style.setProperty("--oc-side-top", h + "px");
+    };
+
     const setOpen = (on) => {
       side.hidden = !on;
       if (chathome) chathome.classList.toggle("has-sidebar", on);
@@ -6888,12 +6916,18 @@ function wireSessions() {
       const what = on ? "Hide the session list" : "Show the session list";
       toggle.title = what;
       toggle.setAttribute("aria-label", what);
+      measureHead();
       try { localStorage.setItem("octop:oc-sidebar", on ? "1" : "0"); } catch { }
     };
     let saved = null;
     try { saved = localStorage.getItem("octop:oc-sidebar"); } catch { }
     setOpen(saved === null ? true : saved === "1");
     toggle.addEventListener("click", () => setOpen(side.hidden));
+    window.addEventListener("resize", measureHead);
+    // the session tabs are re-rendered as sessions come and go, which changes
+    // their height, so the offset is re-taken whenever the list is opened
+    // rather than trusted from page load
+    document.addEventListener("visibilitychange", measureHead);
   }
 
   paintSessions();
