@@ -352,7 +352,12 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
   padding:3px max(var(--oc-gutter), calc((100% - var(--oc-measure)) / 2 + var(--oc-gutter)));
   border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary);
   font-size:10.5px; color:var(--fn-text-tertiary); }
-.chat-panel-head { flex:none; display:flex; align-items:center; gap:5px; min-height:36px;
+/* The bar is the button plus air, rather than a height the button has to fit
+   inside. Fixed 36px with a 32px button in it left two pixels of slack; fixed
+   36px with a 22px one left a bar twice as tall as its contents, which is what
+   a control ends up looking like it is floating in. */
+.chat-panel-head { flex:none; display:flex; align-items:center; gap:5px;
+  min-height:calc(var(--oc-btn) + 11px);
   padding:0 max(var(--oc-gutter), calc((100% - var(--oc-measure)) / 2 + var(--oc-gutter)));
   border-bottom:1px solid var(--fn-border-secondary); background:var(--fn-bg-primary); }
 
@@ -419,9 +424,36 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
 .chat-session-title { min-width:3.5em; max-width:70%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; background:transparent;
   color:var(--fn-text-primary); cursor:pointer; padding:4px 0; font:600 12px var(--fn-font-ui); text-align:left; }
 .chat-session-title:hover { color:var(--fn-text-secondary); }
-.chat-head-btn { display:grid; place-items:center; width:25px; height:25px; border:1px solid transparent; border-radius:var(--fn-radius-sm);
+/* The header buttons size themselves to the panel they are in.
+ *
+ * They were a flat 25px, which is a number picked once and then never looked at
+ * again: too small to aim at on a wide screen and too big for the column it
+ * ended up in on a narrow one — and the same number in a 1400px panel and in a
+ * 380px one, which is the definition of a control that does not belong to
+ * anything.
+ *
+ * cqw is a percent of the container's own width, and .chat is already a
+ * container, so the button follows the panel rather than the browser window.
+ * That is the right ruler twice over: the panel is what the reader is looking
+ * at, and the same element moves into a floating window that can be resized
+ * independently, where a vw-based size would ignore the box it is actually in.
+ *
+ * The floor is 22px because that is the smallest a pointer target should be,
+ * and the ceiling is 32px because past that it stops being a header control and
+ * starts being a button. Both ends are reached long before the sizes stop making
+ * sense, so the clamp is doing nothing on a real screen — it is there for the
+ * corners.
+ *
+ * The density setting multiplies it, because every other control on the page
+ * already does and a header button that ignores the density preference is the
+ * one control that looks wrong the moment somebody turns it up. */
+.chat { --oc-btn: calc(clamp(22px, 1.3cqw + 16px, 32px) * var(--fn-dens)); }
+.chat-head-btn { display:grid; place-items:center; width:var(--oc-btn); height:var(--oc-btn);
+  border:1px solid transparent; border-radius:var(--fn-radius-sm);
   background:transparent; color:var(--fn-text-tertiary); cursor:pointer; padding:0; }
 .chat-head-btn:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
+.chat-head-btn.oc-side-toggle { font-size:calc(13px * var(--fn-dens)); line-height:1; }
+.chat-head-btn.oc-side-toggle[aria-expanded="true"] { color:var(--fn-text-primary); }
 .chat-session-tabs { display:flex; align-items:flex-end; gap:2px; min-height:30px;
   padding:3px max(var(--oc-gutter), calc((100% - var(--oc-measure)) / 2 + var(--oc-gutter))) 0;
   border-bottom:1px solid var(--fn-border-secondary); background:var(--fn-bg-secondary); overflow-x:auto; scrollbar-width:none; }
@@ -460,9 +492,8 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * a control nobody can rely on finding — and the first version of this hid it
  * below 900px, where the list was not in the layout, which made it disappear
  * from the one thing it now lives in. The answer is not to take the button away;
- * it is to make the list work at the width the button is at. */
-.chat-head-btn.oc-side-toggle { font-size:12px; line-height:1; }
-.chat-head-btn.oc-side-toggle[aria-expanded="true"] { color:var(--fn-text-primary); }
+ * it is to make the list work at the width the button is at. Its own size and
+ * its tinted-when-open state are with the other header buttons above. */
 /* 220px, not 264px. A list of session names does not need a third of a panel:
    the longest name anyone types is a sentence, and it ellipsises long before
    220px is full, so the extra 44px was showing nothing at all — while being
