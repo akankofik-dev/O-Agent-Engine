@@ -1619,7 +1619,17 @@ dialog.docdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 1
    come along, and a narrow card is the one place there is no room: the window
    already says which app it is in its own title bar, and the space in here is
    the conversation. */
-.floatwin .chat-mark { display:none; }
+/* The wordmark fills what an empty conversation leaves, and in a window that is
+   the difference between a panel and a void: the log takes only what it needs,
+   so the mark is the one thing in the column that grows. Hiding it here left 291px
+   — 51% of a 571px window — with nothing in it.
+   It is hidden only where it would not fit. At full size the mark is 392px, and a
+   window narrower than that would show it shrunk to a stamp, which is worse than
+   showing nothing. */
+.floatwin .chat-mark { display:flex; }
+@container fw (max-width: 380px) {
+  .floatwin .chat-mark { display:none; }
+}
 @container fw (max-width: 400px) {
   .floatwin .chat { --oc-gutter:11px; }
   .floatwin .fw-title { display:none; }
