@@ -592,7 +592,8 @@ body.tab-chat .wb-card { padding:0; }
    * the clicks, and Escape or the toggle puts it away — which is the deal an
    * overlay offers and the reason it is only used where a column will not fit. */
   #p-chat .chathome { position:relative; }
-  #p-chat .oc-side { position:absolute; top:var(--oc-side-top,0px); right:0; bottom:0; z-index:3;
+  #p-chat .oc-side { position:absolute; top:var(--oc-side-top,0px); right:0;
+    bottom:var(--oc-side-bottom,0px); z-index:3;
     width:min(220px,72vw); box-shadow:-10px 0 24px rgba(0,0,0,.22);
     transform:translateX(0);
     transition:transform .22s cubic-bezier(.32,.72,0,1); }
@@ -5912,6 +5913,57 @@ function paintAllFloatHeaders() {
 /* ------------------------------ lifecycle ------------------------------ */
 
 /** called from setTab(); declared as a function so the boot call can reach it */
+/* Where the floating session list starts and stops.
+ *
+ * Both ends are measured as positions on screen, not as sums of heights. The
+ * top used to be a sum — the header plus the tab strip under it — which was
+ * right when they were two things and quietly wrong once the tabs became the
+ * top bar and went inside the header: it counted the same 36px twice and opened
+ * a 35px hole. Taking the lower edge of whichever is lower is right whether
+ * they are stacked or nested, and does not have to be corrected the next time
+ * the layout changes.
+ *
+ * The bottom is measured for the same reason and for one more: the list ran to
+ * the floor of the panel, which meant it lay over the status line and hid half
+ * of it. A status line belongs to the whole chat, not to the part of it a
+ * floating panel happens to be over. Ending at the composer's bottom puts the
+ * list exactly between the bar and the input — which is the whole conversation
+ * — and leaves the line below it alone.
+ *
+ * While the chat is floating none of this is measurable: the bar and the
+ * composer are in the window and their coordinates have nothing to do with this
+ * column, so the list simply fills it. That was true of the top before this too,
+ * and it was measuring a window that had nothing to do with the panel it was
+ * positioning. An unset host is the page, not a window — that is the state a
+ * page starts in — so reading a missing host as "floating" would have put the
+ * list back at the top and the bottom of the panel on a fresh load.
+ *
+ * It is called from onTabChange as well as on open, because every element it
+ * measures is inside a panel that is display:none while another tab is showing.
+ * A rect read from a hidden element is all zeros, so a list left open across a
+ * tab change kept the numbers from the moment it was measured and jumped the
+ * first time the chat came back. */
+function measureSessionEdges() {
+  const side = $("ocSide");
+  const chathome = side && side.parentElement;
+  if (!chathome) return;
+  const floating = !!(CHAT && CHAT.host && CHAT.host !== "page");
+  if (floating) {
+    chathome.style.setProperty("--oc-side-top", "0px");
+    chathome.style.setProperty("--oc-side-bottom", "0px");
+    return;
+  }
+  const homeBox = chathome.getBoundingClientRect();
+  const tops = [$("chatPanelHead"), document.querySelector(".chat-session-tabs")]
+    .filter(Boolean)
+    .map((el) => el.getBoundingClientRect().bottom);
+  const foot = document.querySelector(".chatfoot");
+  const below = tops.length ? Math.max(...tops) - homeBox.top : 0;
+  const above = foot ? homeBox.bottom - foot.getBoundingClientRect().bottom : 0;
+  chathome.style.setProperty("--oc-side-top", Math.max(0, Math.round(below)) + "px");
+  chathome.style.setProperty("--oc-side-bottom", Math.max(0, Math.round(above)) + "px");
+}
+
 function onTabChange(key) {
   if (key === "chat") {
     closeAllFloats();
@@ -5925,6 +5977,9 @@ function onTabChange(key) {
   /* the list shows what a turn just wrote, and the relative times in it go
      stale on their own, so it is repainted whenever it comes into view */
   if (key === "sessions") paintSessions();
+  // and the same is true of where the floating session list sits: everything it
+  // is measured against is inside a panel that was not on screen a moment ago
+  if (key === "chat") measureSessionEdges();
 }
 
 /** the workspace may have been resized or re-laid-out; keep windows legal */
@@ -7037,32 +7092,6 @@ function wireSessions() {
   if (side && toggle) {
     const chathome = side.parentElement;
 
-    /* Where the floating list starts.
-     *
-     * Below 900px the list is an overlay rather than a column, and an overlay
-     * pinned to the very top would cover the bar the toggle lives in and the tab
-     * strip that switches sessions. So it starts under them — and "under them" is
-     * measured as a position on screen, not as a sum of two heights, because the
-     * two are not two things.
-     *
-     * They used to be: a header and a tab strip below it, and adding their
-     * heights was right. Then the tabs became the top bar and went inside the
-     * header, and the addition quietly became wrong — it counted the bar twice
-     * and opened a 35px hole between the bar and the list, which is the part of
-     * the screen that should have had nothing in it. Taking the lower edge of
-     * whichever is lower is right whether they are stacked or nested, so it does
-     * not have to be updated when the layout changes again. */
-    const measureHead = () => {
-      if (!chathome) return;
-      const homeTop = chathome.getBoundingClientRect().top;
-      const edges = [$("chatPanelHead"), document.querySelector(".chat-session-tabs")]
-        .filter(Boolean)
-        .map((el) => el.getBoundingClientRect().bottom);
-      if (!edges.length) return;
-      const below = Math.max(...edges) - homeTop;
-      chathome.style.setProperty("--oc-side-top", Math.max(0, Math.round(below)) + "px");
-    };
-
     const sideHead = side.querySelector(".oc-side-head");
     const panelHead = $("chatPanelHead");
     const closeBtn = $("chatCloseFloat");
@@ -7135,7 +7164,7 @@ function wireSessions() {
           side.hidden = true;
           side.classList.remove("oc-side-out");
           rehome(false);
-          measureHead();
+          measureSessionEdges();
         }, SLIDE_MS);
       } else {
         side.hidden = !on;
@@ -7159,7 +7188,7 @@ function wireSessions() {
         toggle.title = what;
         toggle.setAttribute("aria-label", what);
         rehome(on);
-        measureHead();
+        measureSessionEdges();
       }
       try { localStorage.setItem("octop:oc-sidebar", on ? "1" : "0"); } catch { }
     };
@@ -7167,11 +7196,11 @@ function wireSessions() {
     try { saved = localStorage.getItem("octop:oc-sidebar"); } catch { }
     setOpen(saved === null ? true : saved === "1");
     toggle.addEventListener("click", () => setOpen(!wantOpen));
-    window.addEventListener("resize", measureHead);
+    window.addEventListener("resize", measureSessionEdges);
     // the session tabs are re-rendered as sessions come and go, which changes
     // their height, so the offset is re-taken whenever the list is opened
     // rather than trusted from page load
-    document.addEventListener("visibilitychange", measureHead);
+    document.addEventListener("visibilitychange", measureSessionEdges);
   }
 
   paintSessions();
