@@ -543,13 +543,20 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
    the longest name anyone types is a sentence, and it ellipsises long before
    220px is full, so the extra 44px was showing nothing at all — while being
    17% of the conversation. */
-#p-chat .chathome.has-sidebar { display:grid; grid-template-columns:minmax(0,1fr) 220px; }
+/* The list is not a column of the grid any more — it is a window, so the chat
+   keeps the whole width whether it is open or not. Opening it no longer costs
+   the conversation a third of itself, which is what a 220px column did. */
 /* The list is a container for the same reason the chat is: the toggle lives in
  * here when the list is open, and a 220px panel should hold a 22px button, not
  * the 26px the chat next to it wants. */
-.oc-side { display:flex; flex-direction:column; min-height:0; min-width:0;
-  container-type:inline-size;
-  border-left:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary); }
+/* The session list as the inside of a window.
+ *
+ * It brings no chrome of its own: the window has a border, a background, a
+ * shadow and a title bar, and a panel that brings its own reads as a box
+ * inside a window rather than as the window. It is a container so the button in
+ * its heading is sized from the window width, not from the page. */
+.oc-side { flex:1; min-width:0; display:flex; flex-direction:column;
+  container-type:inline-size; background:transparent; }
 /* The heading is the button plus air, same as the panel header above, because
  * the button is in here now and a fixed-height strip would either clip it or
  * leave it floating. */
@@ -579,49 +586,12 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * decision as everything else, sized for what it holds. */
 body.tab-chat .wb { padding:8px; overflow:hidden; }
 body.tab-chat .wb-card { padding:0; }
+/* The chat panel is the stage the session window is dragged around inside: it
+   has to be positioned for a window to have anything to be positioned against.
+   */
+#p-chat { position:relative; }
 @media (max-width:900px) {
-  #p-chat .chathome.has-sidebar { grid-template-columns:minmax(0,1fr); }
-  /* Below the width where the list can have a column of its own, it stops
-   * taking one and floats over the right-hand edge instead. Taking a 264px
-   * column out of a 700px panel is not a sidebar, it is a third of the
-   * conversation gone; floating it keeps the chat at full width and keeps the
-   * toggle in charge of something real, which is the whole point of moving the
-   * toggle up there.
-   *
-   * The chat element underneath is inert while the list is up — the list takes
-   * the clicks, and Escape or the toggle puts it away — which is the deal an
-   * overlay offers and the reason it is only used where a column will not fit. */
-  #p-chat .chathome { position:relative; }
-  #p-chat .oc-side { position:absolute; top:var(--oc-side-top,0px); right:0;
-    bottom:var(--oc-side-bottom,0px); z-index:3;
-    width:min(220px,72vw); box-shadow:-10px 0 24px rgba(0,0,0,.22);
-    transform:translateX(0);
-    transition:transform .22s cubic-bezier(.32,.72,0,1); }
-  /* Where it comes from.
-   *
-   * It was appearing rather than arriving: one frame it was not there and the
-   * next it was, which for a panel that covers a third of the conversation is
-   * the most abrupt thing in the layout and the only one with no transition on
-   * it. A panel this size that materialises reads as a glitch; the same panel
-   * that slides in from the edge it is anchored to reads as a drawer, which is
-   * what it is.
-   *
-   * It starts a full panel-width to the right and travels left into place — the
-   * direction it is pinned to, so the motion comes from where the panel lives
-   * rather than from the top of the screen. Vertical motion would be wrong here
-   * even as a fade's companion: the list does not drop into the panel, it slides
-   * along the edge, and a panel that appears to fall is a panel that looks like
-   * it is arriving from somewhere above it, which nothing is.
-   *
-   * The class is the starting position, added before the transition and removed
-   * straight after — see setOpen, which reads a layout property in between
-   * because a transition from a position the element has never been in does not
-   * run, it just jumps. */
-  #p-chat .oc-side.oc-side-out { transform:translateX(100%); }
   .chat-head-btn.oc-side-toggle[aria-expanded="true"] { background:var(--fn-bg-hover); }
-  @media (prefers-reduced-motion:reduce) {
-    #p-chat .oc-side { transition:none; }
-  }
 }
 /* inside a floating window the status line is narrower, and the provider name
    already lives in the window's own title */
@@ -1957,7 +1927,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
 
           <!-- ================= CHAT ================= -->
           <div class="panel on" id="p-chat">
-          <div class="chathome has-sidebar" id="chatHome">
+          <div class="chathome" id="chatHome">
               <div class="chat">
               <header class="chat-panel-head" id="chatPanelHead">
                 <div class="chat-session-tabs" id="chatSessionTabs" role="tablist" aria-label="Open chat sessions"><button class="chat-new-tab" id="chatNew" type="button" title="New session" aria-label="New session"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
@@ -5265,7 +5235,35 @@ function floatForget(host) {
   } catch { /* nothing to do */ }
 }
 
-const floatStage = host => document.querySelector("#p-" + host + " .stage");
+/* The box a window is positioned and sized against.
+ *
+ * Browser and Terminal each have a .stage to float over. The session list has
+ * no panel of its own to float over — it floats over the chat, which is where
+ * it was and where it still belongs — and it cannot be found by the usual rule,
+ * because the host name "sessions" is also the name of a tab, so #p-sessions is
+ * the Sessions panel, which is hidden whenever anybody is looking at the chat and
+ * measures 0x0. A window sized against that comes out one pixel wide.
+ *
+ * So the stage is named explicitly for that one host, and falls back to the
+ * panel for the rest. */
+const FLOAT_OVER = { sessions: "chat" };
+const floatStage = host => document.querySelector("#p-" + host + " .stage")
+  || document.getElementById("p-" + (FLOAT_OVER[host] || host));
+
+/* What each window is called and how big it wants to be.
+ *
+ * The chat windows are 430 wide because a conversation needs a measure. A
+ * session list does not: it is a column of names, and 300 is enough for the
+ * longest one anybody types, so opening it at 430 would have been a window two
+ * thirds empty. The side is where it opens — the chat windows sit over the thing
+ * you came to look at, and so does this one, on the right, which is where the
+ * list already was. */
+const FLOAT_WINDOW = {
+  browser:  { title: "Chat",     w: 430, h: 460, side: "right" },
+  terminal: { title: "Chat",     w: 430, h: 460, side: "left" },
+  sessions: { title: "Sessions", w: 300, h: 420, side: "right" },
+};
+const floatShape = host => FLOAT_WINDOW[host] || FLOAT_WINDOW.browser;
 
 /** the real height of a window's title bar, so a minimized window is exactly that */
 function floatHeadH(win) {
@@ -5313,11 +5311,12 @@ function floatMinBox(host) {
 function defaultBox(host) {
   const stage = floatStage(host);
   const r = stage ? stage.getBoundingClientRect() : { width: 900, height: 600 };
-  const w = Math.min(430, Math.max(280, r.width - 40));
-  const h = Math.min(460, Math.max(220, r.height - 40));
+  const shape = floatShape(host);
+  const w = Math.min(shape.w, Math.max(240, r.width - 40));
+  const h = Math.min(shape.h, Math.max(200, r.height - 40));
   // over the canvas on the right for the browser, over the shell on the left
   // for the terminal, so the window never covers what you came to look at
-  const x = host === "browser" ? r.width - w - 24 : 24;
+  const x = shape.side === "left" ? 24 : Math.max(24, r.width - w - 24);
   const y = Math.max(0, r.height - h - 24);
   return clampBox(host, { x, y, w, h });
 }
@@ -5359,7 +5358,7 @@ function floatBuild(host) {
   el.className = "floatwin";
   el.dataset.host = host;
   el.setAttribute("role", "dialog");
-  el.setAttribute("aria-label", "Chat");
+  el.setAttribute("aria-label", floatShape(host).title);
   el.tabIndex = -1;
   el.hidden = true;
 
@@ -5369,10 +5368,12 @@ function floatBuild(host) {
   dot.className = "fw-dot";
   const title = document.createElement("span");
   title.className = "fw-title";
-  title.textContent = "Chat";
+  title.textContent = floatShape(host).title;
   const sub = document.createElement("span");
   sub.className = "fw-sub";
-  sub.textContent = host;
+  // the subtitle repeats the host for the chat windows; the session window is
+  // already called Sessions, so it says nothing rather than saying it twice
+  sub.textContent = host === "sessions" ? "" : host;
   const ctl = document.createElement("div");
   ctl.className = "fw-ctl";
 
@@ -5781,7 +5782,7 @@ document.addEventListener("pointerdown", e => {
  * is already there — there is never a second chat.
  */
 function openFloat(host) {
-  if (FLOAT_HOSTS.indexOf(host) === -1) return;
+  if (FLOAT_HOSTS.indexOf(host) === -1 && host !== "sessions") return;
   const existing = FLOAT.windows.get(host);
   const win = existing && existing.open ? existing : (existing || floatBuild(host));
   if (!existing) floatRestore(win);
@@ -5791,10 +5792,12 @@ function openFloat(host) {
   floatHideGuides(win);
   floatApply(win);
   bringToFront(win);
-  mountChat(host);
-  paintFloatHeader(host);
+  // what goes in the window is the only thing that differs between hosts:
+  // the chat for the two chat windows, the session list for the third
+  if (host === "sessions") mountSessionList(win);
+  else { mountChat(host); paintFloatHeader(host); }
   win.el.focus({ preventScroll: true });
-  if (chatInput && !CHAT.busy) chatInput.focus();
+  if (host !== "sessions" && chatInput && !CHAT.busy) chatInput.focus();
   return win;
 }
 
@@ -5806,7 +5809,8 @@ function closeFloat(host) {
   win.el.hidden = true;
   floatCloseMenu();
   floatRemember(win);
-  if (CHAT.host === host) mountChat("page");
+  if (host === "sessions") unmountSessionList();
+  else if (CHAT.host === host) mountChat("page");
 }
 
 function closeAllFloats() {
@@ -5821,8 +5825,8 @@ function focusFloat(host) {
   if (!win || !win.open) return openFloat(host);
   bringToFront(win);
   if (win.min) toggleFloatMin(win.host);
-  mountChat(host);
-  if (chatInput && !CHAT.busy) chatInput.focus();
+  if (host === "sessions") mountSessionList(win);
+  else { mountChat(host); if (chatInput && !CHAT.busy) chatInput.focus(); }
   return win;
 }
 
@@ -5875,6 +5879,27 @@ const chatHome = () => document.getElementById("chatHome");
  * Move the single .chat element into the given host. Nothing is duplicated:
  * the same nodes move, so the same conversation continues.
  */
+function mountSessionList(win) {
+  const side = $("ocSide");
+  if (side && win && win.body) {
+    // the list ships hidden, because before it was a window the only thing that
+    // showed it was a class on a column; a window is shown by being in the body,
+    // so the attribute has to come off or the window opens with nothing in it
+    side.hidden = false;
+    if (side.parentNode !== win.body) win.body.appendChild(side);
+  }
+  return side;
+}
+
+function unmountSessionList() {
+  const side = $("ocSide");
+  const home = $("chatHome");
+  if (!side) return side;
+  side.hidden = true;
+  if (home && side.parentNode !== home) home.appendChild(side);
+  return side;
+}
+
 function mountChat(host) {
   const home = chatHome();
   const chat = document.querySelector(".chat");
@@ -5913,56 +5938,6 @@ function paintAllFloatHeaders() {
 /* ------------------------------ lifecycle ------------------------------ */
 
 /** called from setTab(); declared as a function so the boot call can reach it */
-/* Where the floating session list starts and stops.
- *
- * Both ends are measured as positions on screen, not as sums of heights. The
- * top used to be a sum — the header plus the tab strip under it — which was
- * right when they were two things and quietly wrong once the tabs became the
- * top bar and went inside the header: it counted the same 36px twice and opened
- * a 35px hole. Taking the lower edge of whichever is lower is right whether
- * they are stacked or nested, and does not have to be corrected the next time
- * the layout changes.
- *
- * The bottom is measured for the same reason and for one more: the list ran to
- * the floor of the panel, which meant it lay over the status line and hid half
- * of it. A status line belongs to the whole chat, not to the part of it a
- * floating panel happens to be over. Ending at the composer's bottom puts the
- * list exactly between the bar and the input — which is the whole conversation
- * — and leaves the line below it alone.
- *
- * While the chat is floating none of this is measurable: the bar and the
- * composer are in the window and their coordinates have nothing to do with this
- * column, so the list simply fills it. That was true of the top before this too,
- * and it was measuring a window that had nothing to do with the panel it was
- * positioning. An unset host is the page, not a window — that is the state a
- * page starts in — so reading a missing host as "floating" would have put the
- * list back at the top and the bottom of the panel on a fresh load.
- *
- * It is called from onTabChange as well as on open, because every element it
- * measures is inside a panel that is display:none while another tab is showing.
- * A rect read from a hidden element is all zeros, so a list left open across a
- * tab change kept the numbers from the moment it was measured and jumped the
- * first time the chat came back. */
-function measureSessionEdges() {
-  const side = $("ocSide");
-  const chathome = side && side.parentElement;
-  if (!chathome) return;
-  const floating = !!(CHAT && CHAT.host && CHAT.host !== "page");
-  if (floating) {
-    chathome.style.setProperty("--oc-side-top", "0px");
-    chathome.style.setProperty("--oc-side-bottom", "0px");
-    return;
-  }
-  const homeBox = chathome.getBoundingClientRect();
-  const tops = [$("chatPanelHead"), document.querySelector(".chat-session-tabs")]
-    .filter(Boolean)
-    .map((el) => el.getBoundingClientRect().bottom);
-  const foot = document.querySelector(".chatfoot");
-  const below = tops.length ? Math.max(...tops) - homeBox.top : 0;
-  const above = foot ? homeBox.bottom - foot.getBoundingClientRect().bottom : 0;
-  chathome.style.setProperty("--oc-side-top", Math.max(0, Math.round(below)) + "px");
-  chathome.style.setProperty("--oc-side-bottom", Math.max(0, Math.round(above)) + "px");
-}
 
 function onTabChange(key) {
   if (key === "chat") {
@@ -5977,9 +5952,8 @@ function onTabChange(key) {
   /* the list shows what a turn just wrote, and the relative times in it go
      stale on their own, so it is repainted whenever it comes into view */
   if (key === "sessions") paintSessions();
-  // and the same is true of where the floating session list sits: everything it
-  // is measured against is inside a panel that was not on screen a moment ago
-  if (key === "chat") measureSessionEdges();
+  // and the session window needs nothing here: it is only ever interacted with
+  // while the chat is showing, and it keeps its own geometry.
 }
 
 /** the workspace may have been resized or re-laid-out; keep windows legal */
@@ -7086,121 +7060,81 @@ function wireSessions() {
   const wipe = $("sesWipe");
   if (wipe) wipe.addEventListener("click", () => sesWipe());
 
-  /* the OpenCode sidebar: a preference, remembered across reloads */
-  const side = $("ocSide");
+  /* The session list is a window, and the toggle opens and closes it.
+   *
+   * It was a column of the chat panel's grid, and below 900px an overlay pinned
+   * to the right edge. Neither could be moved, and a control you cannot move is
+   * a control that is not really a window — so the drag, the eight resize
+   * handles, the tile menu, minimise, maximise and the remembered size and
+   * position all come from the same machinery the chat over Browser and Terminal
+   * already uses. Nothing was built for this; the window component was already
+   * generic and only ever needed to be told what goes in the body.
+   *
+   * What is left here is the preference and the button, because those are the
+   * two things the window does not know about. */
   const toggle = $("ocSideToggle");
-  if (side && toggle) {
-    const chathome = side.parentElement;
-
-    const sideHead = side.querySelector(".oc-side-head");
+  if (toggle) {
     const panelHead = $("chatPanelHead");
     const closeBtn = $("chatCloseFloat");
 
-    /* Where the toggle lives depends on what the list is doing.
+    /* Where the toggle lives.
      *
-     * Closed, the button sits in the panel header, because that is the one place
-     * on screen that can open it. Open, it moves into the head of the list, so
-     * it belongs to the thing it controls and travels with it: a control that
-     * opens a panel and then stays behind in the corner while the panel does
-     * something else is two controls pretending to be one, and the eye has to
-     * work out which of the two corners it is meant to be in.
-     *
-     * It is the same element either way. Moving a node is one operation and
-     * there is no second copy to fall out of step with the first, no second
-     * label to keep truthful, and no way for the two to disagree about whether
-     * the list is open. */
-    const rehome = (on) => {
-      if (on && sideHead) sideHead.appendChild(toggle);
-      else if (panelHead) {
-        // before the close button, so the pair keeps its order
-        panelHead.insertBefore(toggle, closeBtn || null);
-      }
+     * In the panel header, always. It used to move into the list's own heading
+     * so it would travel with it — which was right when the list was a panel
+     * with no title bar of its own, and is not right now that it is a window
+     * with one: the window carries a close button in its title bar, and having a
+     * second control that closes the same thing inside the window is the same
+     * "two controls pretending to be one" problem one level down. The button
+     * opens the window; the window's own ✕ closes it. */
+    const rehome = () => {
+      if (panelHead) panelHead.insertBefore(toggle, closeBtn || null);
     };
 
-    /* Whether the list is a floating overlay or a column of its own. It only
-       moves when it is floating: a column that is part of the grid appears by
-       being there, and sliding a column that has a neighbour to make room for
-       looks like the conversation is being shoved sideways. */
-    const isOverlay = () => {
-      try { return window.matchMedia("(max-width:900px)").matches; } catch { return false; }
+    /* The window is the state. Asking the window is asking the thing itself,
+       which cannot be out of step with itself. */
+    const isOpen = () => {
+      const win = FLOAT.windows.get("sessions");
+      return !!(win && win.open);
     };
-    const noMotion = () => {
-      try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
-    };
-    const SLIDE_MS = 220;
-    let closeTimer = 0;
-
-    /* What the list is meant to be doing, which is not the same question as
-     * whether it is currently in the layout: for 220ms after a close it is very
-     * much in the layout and on its way out. Deriving the next click from
-     * `hidden` therefore gets it backwards, so the intent is kept here and the
-     * button just flips it. It also makes a click during the slide-out open the
-     * list again rather than being ignored, which is what a person who changes
-     * their mind halfway through closing expects. */
-    let wantOpen = false;
 
     const setOpen = (on) => {
-      wantOpen = on;
-      const slide = isOverlay() && !noMotion();
-      clearTimeout(closeTimer);
-
-      if (!on && slide && !side.hidden) {
-        /* Closing has to let the panel travel first.
-         *
-         * `hidden` takes the element out of the layout in the same tick, so a
-         * transition declared on it would never run: there is nothing to
-         * animate by the time the browser looks. So the panel is put into its
-         * off-screen position, left in the layout long enough to travel, and
-         * only then hidden — and the button is rehomed after that, so it rides
-         * out with the panel instead of teleporting to the header while the
-         * panel is still on screen without it. */
-        side.classList.add("oc-side-out");
-        if (chathome) chathome.classList.remove("has-sidebar");
-        toggle.setAttribute("aria-expanded", "false");
-        const what = "Show the session list";
-        toggle.title = what;
-        toggle.setAttribute("aria-label", what);
-        closeTimer = setTimeout(() => {
-          side.hidden = true;
-          side.classList.remove("oc-side-out");
-          rehome(false);
-          measureSessionEdges();
-        }, SLIDE_MS);
-      } else {
-        side.hidden = !on;
-        side.classList.remove("oc-side-out");
-        if (on && slide) {
-          /* Opening needs the starting position committed before the
-           * transition is asked for. Removing the class in the same tick as
-           * adding it means the browser only ever sees the destination, and
-           * there is no transition to run — reading offsetWidth is what forces
-           * it to lay the start out first. */
-          side.classList.add("oc-side-out");
-          void side.offsetWidth;
-          side.classList.remove("oc-side-out");
-        }
-        if (chathome) chathome.classList.toggle("has-sidebar", on);
-        toggle.setAttribute("aria-expanded", on ? "true" : "false");
-        // a toggle's label is what pressing it will do, not what it currently
-        // is; a screen reader user gets that from the name, and everyone else
-        // gets it from the tooltip
-        const what = on ? "Hide the session list" : "Show the session list";
-        toggle.title = what;
-        toggle.setAttribute("aria-label", what);
-        rehome(on);
-        measureSessionEdges();
-      }
+      if (on) openFloat("sessions");
+      else closeFloat("sessions");
+      toggle.setAttribute("aria-expanded", on ? "true" : "false");
+      // a toggle's label is what pressing it will do, not what it currently is;
+      // a screen reader user gets that from the name, and everyone else from
+      // the tooltip
+      const what = on ? "Hide the session list" : "Show the session list";
+      toggle.title = what;
+      toggle.setAttribute("aria-label", what);
+      rehome();
       try { localStorage.setItem("octop:oc-sidebar", on ? "1" : "0"); } catch { }
     };
+
     let saved = null;
     try { saved = localStorage.getItem("octop:oc-sidebar"); } catch { }
     setOpen(saved === null ? true : saved === "1");
-    toggle.addEventListener("click", () => setOpen(!wantOpen));
-    window.addEventListener("resize", measureSessionEdges);
-    // the session tabs are re-rendered as sessions come and go, which changes
-    // their height, so the offset is re-taken whenever the list is opened
-    // rather than trusted from page load
-    document.addEventListener("visibilitychange", measureSessionEdges);
+    toggle.addEventListener("click", () => setOpen(!isOpen()));
+
+    /* The window can also be closed by its own title bar, by Escape, or by the
+     * tile menu, and the button has to follow it: the label it offers has to be
+     * the one that will happen next, or the button lies about what pressing it
+     * does.
+     *
+     * So the window is watched rather than told. It is also built here whether
+     * or not it is open, because that is the only way there is something to
+     * watch: a window that has never been opened does not exist, and the one
+     * case that matters most is the one where the list was closed at start —
+     * the button is then on screen with a label nothing will ever correct. */
+    const win = FLOAT.windows.get("sessions") || floatBuild("sessions");
+    new MutationObserver(() => {
+      const on = isOpen();
+      if (on === (toggle.getAttribute("aria-expanded") === "true")) return;
+      const what = on ? "Hide the session list" : "Show the session list";
+      toggle.setAttribute("aria-expanded", on ? "true" : "false");
+      toggle.title = what;
+      toggle.setAttribute("aria-label", what);
+    }).observe(win.el, { attributes: true, attributeFilter: ["hidden"] });
   }
 
   paintSessions();
