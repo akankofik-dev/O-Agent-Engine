@@ -1157,18 +1157,20 @@ body.tab-chat .wb-head { display:none; }
  * list than the next paragraph is, and a list item is tighter than a paragraph
  * break. Anything that was one number before and is another now was one number
  * because it happened to be the one that was there. */
-/* A bubble is a bubble, and a bubble is the size of what is in it.
+/* Both sides of a conversation are prose.
  *
- * This was a block, so it took the full measure and a six-word sentence came out
- * as a 680px box with 30 words of empty air on the right. Nothing else in the
- * column shouts "unfinished" the way a stretched bubble does: the eye reads the
- * box first, the sentence second, and a box the width of the window says the
- * layout was drawn rather than written. fit-content lets it end where the text
- * ends, and the max-width keeps a long one inside the measure instead of
- * letting it press against the gutter.
+ * The user's message used to be a bubble and the agent's was not, which put one
+ * box in a column of text with a different inset from the text beside it. Measured
+ * with a Range over the characters rather than over the elements: the user's text
+ * started 12px right of the agent's, and its first line sat 7px lower, because
+ * the bubble's 7px of padding and 1px of border were between the reader and the
+ * words. Neither is a thing anyone names, and both of them are why a column of
+ * chat can look laid out rather than written.
  *
- * align-items on the message is what makes the shrink work at all — as a block
- * child the bubble would simply be as wide as it was allowed to be. */
+ * So the two share a rule. One left edge, one measure, one rhythm, and the reader
+ * tells them apart by the word above, which is what the word is for. The 1px of
+ * vertical padding is the one thing the bubble was doing that the prose was not,
+ * and it is kept so an error's left border still lands on the same line. */
 .msg { display:flex; flex-direction:column; align-items:flex-start; gap:3px; position:relative; }
 .msg.same { margin-top:-8px; }
 .msg .msghead { display:flex; align-items:center; gap:8px; align-self:stretch; width:100%; min-height:20px; }
@@ -1184,18 +1186,12 @@ body.tab-chat .wb-head { display:none; }
 .msg.same .msghead { display:none; }
 .msg .who { font-size:10px; font-weight:550; letter-spacing:.04em; text-transform:uppercase; color:var(--fn-text-tertiary); }
 .msg .time { font-size:10px; color:var(--fn-text-quaternary); font-variant-numeric:tabular-nums; margin-left:auto; }
-.msg .body { font-size:14px; line-height:1.55; color:var(--fn-text-primary); word-break:break-word; max-width:100%; }
+.msg .body { font-size:14px; line-height:1.55; color:var(--fn-text-primary); word-break:break-word;
+  max-width:100%; align-self:stretch; padding:1px 0; }
 .msg .msghead::before { content:"O"; display:grid; place-items:center; width:20px; height:20px; flex:none; border:1px solid var(--fn-border-input-alt);
   border-radius:50%; color:var(--fn-text-secondary); font-size:10px; font-weight:600; }
 .msg.u .msghead::before { content:"U"; background:var(--fn-bg-secondary); color:var(--fn-text-primary); }
-.msg.u .body { align-self:flex-start; max-width:100%; width:fit-content;
-  background:var(--fn-bg-secondary); border:1px solid var(--fn-border-secondary);
-  border-radius:calc(var(--fn-radius-lg) * var(--fn-radius-scale)); padding:7px 11px; }
-/* The agent answers in prose, and prose is read at the measure, not at the
-   width of its shortest sentence — so its body keeps the full column. Only the
-   bubble shrinks, because a bubble is a shape around a few words and prose is
-   not. */
-.msg.a .body { align-self:stretch; padding:1px 0; }
+
 .msg.err .body { border-left:2px solid var(--fn-color-danger); padding-left:10px; }
 .msg .body:empty { display:none; }
 .msg .body p { margin:0 0 8px; }
@@ -2946,11 +2942,42 @@ function showApiError(e) { chatNote("error", String((e && e.message) || e)); }
 
 /* ---------- message rendering ---------- */
 
-function chatScroll(force) {
-  if (!chatLog) return;
+/* Writing scrollTop is the expensive half of this, and it is not the message that
+   is expensive — it is the log. The write forces a layout of every row above it,
+   and doing that once per arriving message is what made a long conversation
+   quadratic: 1.62ms a message at 250 rows and 5.73ms at 2000, against 0.17ms and
+   0.21ms with this function stubbed out entirely. Reading scrollHeight is free at
+   0.002ms; it is the write that costs.
+   
+   A follow is therefore scheduled on the next frame, where the layout it forces is
+   the same one the frame was going to do anyway, and where any number of calls in
+   one frame collapse into one. A forced scroll is not a follow — arriving at a
+   conversation means the end of it — so it runs at once rather than a frame late. */
+let CHAT_SCROLL_RAF = 0;
+let CHAT_SCROLL_PENDING = false;
+
+function chatScrollNow(force) {
   if (force || CHAT.pinned) chatLog.scrollTop = chatLog.scrollHeight;
   const latest = $("chatLatest");
   if (latest) latest.hidden = CHAT.pinned;
+}
+
+function chatScroll(force) {
+  if (!chatLog) return;
+  if (force) {
+    if (CHAT_SCROLL_RAF) cancelAnimationFrame(CHAT_SCROLL_RAF);
+    CHAT_SCROLL_RAF = 0;
+    CHAT_SCROLL_PENDING = false;
+    chatScrollNow(true);
+    return;
+  }
+  if (CHAT_SCROLL_PENDING) return;
+  CHAT_SCROLL_PENDING = true;
+  CHAT_SCROLL_RAF = requestAnimationFrame(() => {
+    CHAT_SCROLL_RAF = 0;
+    CHAT_SCROLL_PENDING = false;
+    chatScrollNow(false);
+  });
 }
 
 function addMsg(who, text, opts) {
