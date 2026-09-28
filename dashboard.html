@@ -340,51 +340,65 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
 
 /* The wordmark, standing in the space between the conversation and the composer.
  *
- * It is a large mark in the middle of an empty column, so it is set larger than
- * a header logo would be: there is nothing else on the line and nothing it
- * could be crowding. Thin strokes and wide tracking are what make it read as
- * something designed rather than as a heading that was already on the page, and
- * the capitals are the other half of that — done in CSS so the text underneath
- * stays "O Browser", because a screen reader announces a name, not a string of
- * letters. The scale multiplies with the reader's font-size setting, since a
- * logo is no reason to ignore it.
+ * It is a mark made of blocks, not of type. Every letter is drawn on a grid of
+ * square cells with a one-cell stroke — the same idea as the pixel fonts a
+ * terminal draws with, and the same idea as the mark this console's chat layout
+ * is already modelled on. It is set from a viewBox rather than from a font, so
+ * the letters stay exact squares at any size: at 8px a cell they are 8px
+ * squares, and they are 5px squares when it steps down, and nothing is ever
+ * stretched or re-antialiased into something softer than it was drawn.
  *
- * The colour is the part that matters most and is deliberately not the brand
- * pink. Measured on this surface the brand runs from 2.2:1 to 5.7:1 across the
- * eight light palettes — amber is 2.2:1 and emerald 2.5:1, below even the 3:1
- * that large text is allowed, and four of the eight sit under 4.5:1. That is a
- * logo you can read on black and squint at on white. `--fn-text-primary` is
- * 15.0:1 on the dark palette and 17.7:1 on the light one, legible in both by
- * construction rather than by having been checked twice, and it still flips
- * with every palette and every theme. */
+ * The two tones are the point. The leading O is drawn in the mid tone and the
+ * seven letters of BROWSER in the strong one, so the mark reads as two words
+ * rather than as nine letters — the split is the design, not a decoration on
+ * it. The counters of the closed letters carry a third, lighter ink, which is
+ * what stops nine blocky letters reading as a row of solid rectangles; leaving
+ * the top row of each counter open is what makes it look drawn rather than
+ * typed.
+ *
+ * None of the three inks is the brand pink. Measured on this surface the brand
+ * runs from 2.2:1 to 5.7:1 across the eight light palettes — amber is 2.2:1 and
+ * emerald 2.5:1, below even the 3:1 that a graphic this size is allowed, and
+ * four of the eight sit under 4.5:1. That is a logo you can read on black and
+ * squint at on white. The three theme text colours are 15.0:1, 7.9:1 and 6.2:1
+ * on the dark palette and 17.7:1, 10.1:1 and 5.6:1 on the light one, so the
+ * mark is legible in both by construction rather than by having been checked
+ * twice, and it still flips with every palette and every theme.
+ *
+ * The scale multiplies with the reader's font-size setting. A logo is not a
+ * reason to ignore the preference that text is being made larger. */
 .chat-mark { flex:1 1 auto; min-height:0; overflow:hidden;
   display:flex; align-items:center; justify-content:center;
   padding:0 var(--oc-gutter); }
-.chat-wordmark { display:block; text-align:center;
-  font-family:var(--fn-font-ui);
-  font-size:calc(30px * var(--fn-fs-scale,1));
-  font-weight:200; letter-spacing:.18em; line-height:1.2;
-  text-transform:uppercase;
-  color:var(--fn-text-primary); white-space:nowrap; user-select:none;
+.ob-mark { display:block; height:calc(56px * var(--fn-fs-scale,1)); width:auto; max-width:100%;
   /* The mark is taller than the space left for it as soon as a conversation
-     starts, and the space keeps shrinking. Clipping it mid-word looks like a
-     rendering fault, and hiding it on a step looks like a jump, so it fades by
-     however much of itself actually fits — measured in markFit below, which
-     watches the space and writes the ratio into this variable. */
+     starts, and the space keeps shrinking. Clipping it through a block of
+     squares looks like a rendering fault, and hiding it on a step looks like a
+     jump, so it fades by however much of itself actually fits — measured in
+     markFit below, which watches the space and writes the ratio here. */
   opacity:var(--mark-fade,1);
-  transition:opacity .28s ease; }
+  transition:opacity .28s ease;
+  user-select:none; -webkit-user-drag:none; }
+.ob-mark-dim rect { fill:var(--fn-text-secondary); }
+.ob-mark-strong rect { fill:var(--fn-text-primary); }
+.ob-mark-count rect { fill:var(--fn-text-tertiary); }
 @media (prefers-reduced-motion:reduce) {
-  .chat-wordmark { transition:none; }
+  .ob-mark { transition:none; }
 }
 /* Measured against the chat, not the screen: the width this has to fit inside is
    the width of the chat column, and that is not the width of the screen — the
    session sidebar takes 264px when it is open, and the same element is moved
-   into a resizable floating window. */
-@container chat (max-width: 300px) {
-  .chat-wordmark { font-size:calc(21px * var(--fn-fs-scale,1)); letter-spacing:.14em; }
+   into a resizable floating window. The steps are in cell size, so the mark
+   gets smaller by the same unit it was drawn in rather than by a percentage
+   that would leave the cells uneven. */
+@container chat (max-width: 430px) {
+  .ob-mark { height:calc(40px * var(--fn-fs-scale,1)); }
+}
+@container chat (max-width: 320px) {
+  .ob-mark { height:calc(28px * var(--fn-fs-scale,1)); }
 }
 @container chat (max-width: 200px) {
-  .chat-wordmark { display:none; }
+  .ob-mark { display:none; }
 }
 .chat-session-title { min-width:3.5em; max-width:70%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; background:transparent;
   color:var(--fn-text-primary); cursor:pointer; padding:4px 0; font:600 12px var(--fn-font-ui); text-align:left; }
@@ -1707,7 +1721,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                 <button class="latest-btn" id="chatLatest" type="button" hidden>Latest messages</button>
                 <div class="chatinner" id="chatLogInner"></div>
               </div>
-              <div class="chat-mark"><span class="chat-wordmark">O Browser</span></div>
+              <div class="chat-mark"><svg viewBox="0 0 49 7" width="392" height="56" role="img" aria-label="O Browser" class="ob-mark"><g class="ob-mark-dim"><rect x="1" y="0" width="1" height="1"/><rect x="2" y="0" width="1" height="1"/><rect x="3" y="0" width="1" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="0" y="5" width="1" height="1"/><rect x="4" y="5" width="1" height="1"/><rect x="1" y="6" width="1" height="1"/><rect x="2" y="6" width="1" height="1"/><rect x="3" y="6" width="1" height="1"/></g><g class="ob-mark-strong"><rect x="8" y="0" width="1" height="1"/><rect x="9" y="0" width="1" height="1"/><rect x="10" y="0" width="1" height="1"/><rect x="11" y="0" width="1" height="1"/><rect x="8" y="1" width="1" height="1"/><rect x="12" y="1" width="1" height="1"/><rect x="8" y="2" width="1" height="1"/><rect x="12" y="2" width="1" height="1"/><rect x="8" y="3" width="1" height="1"/><rect x="9" y="3" width="1" height="1"/><rect x="10" y="3" width="1" height="1"/><rect x="11" y="3" width="1" height="1"/><rect x="8" y="4" width="1" height="1"/><rect x="12" y="4" width="1" height="1"/><rect x="8" y="5" width="1" height="1"/><rect x="12" y="5" width="1" height="1"/><rect x="8" y="6" width="1" height="1"/><rect x="9" y="6" width="1" height="1"/><rect x="10" y="6" width="1" height="1"/><rect x="11" y="6" width="1" height="1"/><rect x="14" y="0" width="1" height="1"/><rect x="15" y="0" width="1" height="1"/><rect x="16" y="0" width="1" height="1"/><rect x="17" y="0" width="1" height="1"/><rect x="14" y="1" width="1" height="1"/><rect x="18" y="1" width="1" height="1"/><rect x="14" y="2" width="1" height="1"/><rect x="18" y="2" width="1" height="1"/><rect x="14" y="3" width="1" height="1"/><rect x="15" y="3" width="1" height="1"/><rect x="16" y="3" width="1" height="1"/><rect x="17" y="3" width="1" height="1"/><rect x="14" y="4" width="1" height="1"/><rect x="16" y="4" width="1" height="1"/><rect x="14" y="5" width="1" height="1"/><rect x="17" y="5" width="1" height="1"/><rect x="14" y="6" width="1" height="1"/><rect x="18" y="6" width="1" height="1"/><rect x="21" y="0" width="1" height="1"/><rect x="22" y="0" width="1" height="1"/><rect x="23" y="0" width="1" height="1"/><rect x="20" y="1" width="1" height="1"/><rect x="24" y="1" width="1" height="1"/><rect x="20" y="2" width="1" height="1"/><rect x="24" y="2" width="1" height="1"/><rect x="20" y="3" width="1" height="1"/><rect x="24" y="3" width="1" height="1"/><rect x="20" y="4" width="1" height="1"/><rect x="24" y="4" width="1" height="1"/><rect x="20" y="5" width="1" height="1"/><rect x="24" y="5" width="1" height="1"/><rect x="21" y="6" width="1" height="1"/><rect x="22" y="6" width="1" height="1"/><rect x="23" y="6" width="1" height="1"/><rect x="26" y="0" width="1" height="1"/><rect x="30" y="0" width="1" height="1"/><rect x="26" y="1" width="1" height="1"/><rect x="30" y="1" width="1" height="1"/><rect x="26" y="2" width="1" height="1"/><rect x="30" y="2" width="1" height="1"/><rect x="26" y="3" width="1" height="1"/><rect x="30" y="3" width="1" height="1"/><rect x="26" y="4" width="1" height="1"/><rect x="30" y="4" width="1" height="1"/><rect x="26" y="5" width="1" height="1"/><rect x="28" y="5" width="1" height="1"/><rect x="30" y="5" width="1" height="1"/><rect x="27" y="6" width="1" height="1"/><rect x="28" y="6" width="1" height="1"/><rect x="29" y="6" width="1" height="1"/><rect x="33" y="0" width="1" height="1"/><rect x="34" y="0" width="1" height="1"/><rect x="35" y="0" width="1" height="1"/><rect x="36" y="0" width="1" height="1"/><rect x="32" y="1" width="1" height="1"/><rect x="32" y="2" width="1" height="1"/><rect x="33" y="3" width="1" height="1"/><rect x="34" y="3" width="1" height="1"/><rect x="35" y="3" width="1" height="1"/><rect x="36" y="4" width="1" height="1"/><rect x="36" y="5" width="1" height="1"/><rect x="32" y="6" width="1" height="1"/><rect x="33" y="6" width="1" height="1"/><rect x="34" y="6" width="1" height="1"/><rect x="35" y="6" width="1" height="1"/><rect x="38" y="0" width="1" height="1"/><rect x="39" y="0" width="1" height="1"/><rect x="40" y="0" width="1" height="1"/><rect x="41" y="0" width="1" height="1"/><rect x="42" y="0" width="1" height="1"/><rect x="38" y="1" width="1" height="1"/><rect x="38" y="2" width="1" height="1"/><rect x="38" y="3" width="1" height="1"/><rect x="39" y="3" width="1" height="1"/><rect x="40" y="3" width="1" height="1"/><rect x="41" y="3" width="1" height="1"/><rect x="38" y="4" width="1" height="1"/><rect x="38" y="5" width="1" height="1"/><rect x="38" y="6" width="1" height="1"/><rect x="39" y="6" width="1" height="1"/><rect x="40" y="6" width="1" height="1"/><rect x="41" y="6" width="1" height="1"/><rect x="42" y="6" width="1" height="1"/><rect x="44" y="0" width="1" height="1"/><rect x="45" y="0" width="1" height="1"/><rect x="46" y="0" width="1" height="1"/><rect x="47" y="0" width="1" height="1"/><rect x="44" y="1" width="1" height="1"/><rect x="48" y="1" width="1" height="1"/><rect x="44" y="2" width="1" height="1"/><rect x="48" y="2" width="1" height="1"/><rect x="44" y="3" width="1" height="1"/><rect x="45" y="3" width="1" height="1"/><rect x="46" y="3" width="1" height="1"/><rect x="47" y="3" width="1" height="1"/><rect x="44" y="4" width="1" height="1"/><rect x="46" y="4" width="1" height="1"/><rect x="44" y="5" width="1" height="1"/><rect x="47" y="5" width="1" height="1"/><rect x="44" y="6" width="1" height="1"/><rect x="48" y="6" width="1" height="1"/></g><g class="ob-mark-count"><rect x="1" y="1" width="1" height="1"/><rect x="2" y="1" width="1" height="1"/><rect x="3" y="1" width="1" height="1"/><rect x="9" y="1" width="1" height="1"/><rect x="10" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/><rect x="9" y="4" width="1" height="1"/><rect x="10" y="4" width="1" height="1"/><rect x="11" y="4" width="1" height="1"/><rect x="15" y="1" width="1" height="1"/><rect x="16" y="1" width="1" height="1"/><rect x="17" y="1" width="1" height="1"/><rect x="21" y="1" width="1" height="1"/><rect x="22" y="1" width="1" height="1"/><rect x="23" y="1" width="1" height="1"/><rect x="45" y="1" width="1" height="1"/><rect x="46" y="1" width="1" height="1"/><rect x="47" y="1" width="1" height="1"/></g></svg></div>
               <div class="chatfoot">
                 <div class="chatinner2">
                   <div class="chat-network" id="chatNetwork" hidden><span>Connection lost. Your conversation is still here.</span><button type="button" id="chatReconnect">Reconnect</button></div>
@@ -2729,11 +2743,14 @@ function paintChatEmpty() {
  */
 function markFit() {
   const box = document.querySelector(".chat-mark");
-  const mark = document.querySelector(".chat-wordmark");
+  const mark = document.querySelector(".ob-mark");
   if (!box || !mark) return;
   const apply = () => {
     const room = box.clientHeight;
-    const need = mark.offsetHeight;
+    // an SVG has no content height to compare against, so the box is measured
+    // against itself at full strength: the mark is scaled to fit the width it
+    // was given, and what is left over is what is left over
+    const need = mark.getBoundingClientRect().height || 1;
     if (!need) return;
     const fit = Math.max(0, Math.min(1, room / need));
     mark.style.setProperty("--mark-fade", fit.toFixed(3));
