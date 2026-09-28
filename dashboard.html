@@ -338,63 +338,52 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
 .chat-panel-head { flex:none; display:flex; align-items:center; gap:5px; min-height:40px; padding:0 var(--oc-gutter);
   border-bottom:1px solid var(--fn-border-secondary); background:var(--fn-bg-primary); }
 
-/* The wordmark.
+/* The wordmark, standing in the space between the conversation and the composer.
  *
- * Big letters, thin strokes, and nothing but the theme's own text colour.
- *
- * The size and the light weight are what make it a logo rather than a label: a
- * wordmark set large and thin with a lot of air between the letters reads as
- * something designed, and a wordmark set at body size and bold reads as a
- * heading someone was already using. The bar stays a bar — the head grew by
- * four pixels, not by a row.
+ * It is a large mark in the middle of an empty column, so it is set larger than
+ * a header logo would be: there is nothing else on the line and nothing it
+ * could be crowding. Thin strokes and wide tracking are what make it read as
+ * something designed rather than as a heading that was already on the page, and
+ * the capitals are the other half of that — done in CSS so the text underneath
+ * stays "O Browser", because a screen reader announces a name, not a string of
+ * letters. The scale multiplies with the reader's font-size setting, since a
+ * logo is no reason to ignore it.
  *
  * The colour is the part that matters most and is deliberately not the brand
- * pink. Measured on this surface, the brand runs from 2.2:1 to 5.7:1 across the
+ * pink. Measured on this surface the brand runs from 2.2:1 to 5.7:1 across the
  * eight light palettes — amber is 2.2:1 and emerald 2.5:1, below even the 3:1
- * that large text is allowed, and four of the eight are under the 4.5:1 that
- * ordinary text needs. A brand-coloured wordmark would be a logo you can read
- * on black and squint at on white, which is the opposite of what a wordmark is
- * for. `--fn-text-primary` is 15.0:1 on the dark palette and 17.7:1 on the
- * light one, so it is legible in both by construction rather than by having
- * been checked twice, and it still flips with every palette and every theme.
- *
- * The scale is the reader's, not ours: it multiplies with the same font-size
- * setting as everything else, because a logo is not a reason to ignore the
- * preference that text is being made larger.
- *
- * The capitals are the other half of what makes it a wordmark, and they are
- * done in CSS so the text underneath stays "O Browser" — a screen reader
- * announces the name, and a capitalised brand spelled out in capitals is read
- * as a string of letters. */
-.chat-wordmark { flex:0 1 auto; min-width:0; overflow:hidden;
+ * that large text is allowed, and four of the eight sit under 4.5:1. That is a
+ * logo you can read on black and squint at on white. `--fn-text-primary` is
+ * 15.0:1 on the dark palette and 17.7:1 on the light one, legible in both by
+ * construction rather than by having been checked twice, and it still flips
+ * with every palette and every theme. */
+.chat-mark { flex:1 1 auto; min-height:0; overflow:hidden;
+  display:flex; align-items:center; justify-content:center;
+  padding:0 var(--oc-gutter); }
+.chat-wordmark { display:block; text-align:center;
   font-family:var(--fn-font-ui);
-  font-size:calc(18px * var(--fn-fs-scale,1));
-  font-weight:200; letter-spacing:.16em; line-height:1.15;
+  font-size:calc(30px * var(--fn-fs-scale,1));
+  font-weight:200; letter-spacing:.18em; line-height:1.2;
   text-transform:uppercase;
   color:var(--fn-text-primary); white-space:nowrap; user-select:none;
-  /* letter-spacing puts a gap after the last letter too, which would push the
-     session title one step to the right; this gives that step back */
-  margin-right:calc(10px - .16em); }
-/* The wordmark yields before the session title does.
- *
- * The title is a button — it renames the session — and a button that has been
- * squeezed to nothing is not a title, it is a gap. The mark is the newer thing
- * in this bar and the cheaper thing to lose, so it steps down first and goes
- * away last, and only at a width where it could not have fitted beside the title
- * whatever its size.
- *
- * These are measured against the chat, not the screen, because that is the box
- * the mark has to fit inside. Two things make the screen the wrong ruler: the
- * session sidebar takes 264px away when it is open, and the same element is
- * moved into the floating window, which has a width of its own.
- *
- * The floor underneath all of it is that the mark may shrink but never widens
- * the bar. The bar is the layout, and a logo that pushes the close button off
- * the end of it has broken the page in order to advertise itself. */
-@container chat (max-width: 430px) {
-  .chat-wordmark { font-size:calc(15px * var(--fn-fs-scale,1)); letter-spacing:.13em; }
+  /* The mark is taller than the space left for it as soon as a conversation
+     starts, and the space keeps shrinking. Clipping it mid-word looks like a
+     rendering fault, and hiding it on a step looks like a jump, so it fades by
+     however much of itself actually fits — measured in markFit below, which
+     watches the space and writes the ratio into this variable. */
+  opacity:var(--mark-fade,1);
+  transition:opacity .28s ease; }
+@media (prefers-reduced-motion:reduce) {
+  .chat-wordmark { transition:none; }
 }
-@container chat (max-width: 250px) {
+/* Measured against the chat, not the screen: the width this has to fit inside is
+   the width of the chat column, and that is not the width of the screen — the
+   session sidebar takes 264px when it is open, and the same element is moved
+   into a resizable floating window. */
+@container chat (max-width: 300px) {
+  .chat-wordmark { font-size:calc(21px * var(--fn-fs-scale,1)); letter-spacing:.14em; }
+}
+@container chat (max-width: 200px) {
   .chat-wordmark { display:none; }
 }
 .chat-session-title { min-width:3.5em; max-width:70%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; background:transparent;
@@ -920,7 +909,18 @@ body.tab-chat .wb-head { display:none; }
 .panel#p-chat.on, .panel#p-settings.on { flex-direction:row; overflow:hidden; }
 #p-chat .chat { flex:1; min-width:0; width:100%; display:flex; flex-direction:column; min-height:0; }
 
-.chatlog { flex:1 1 auto; min-height:0; overflow-y:auto; padding:var(--oc-gutter) 0 6px; scroll-behavior:smooth; }
+/* The log does not grow, so the wordmark below it can.
+ *
+ * The log used to be `flex:1 1 auto`, which meant it took every pixel of
+ * free space and left the wordmark sitting on top of the composer instead of in
+ * the middle. Taking the space away from it is what centres the mark: the log is
+ * now exactly as tall as the conversation in it, the mark takes what is left
+ * and centres itself in it, and the composer stays put.
+ *
+ * It still scrolls, because a long conversation shrinks the log down to the
+ * space that is left and the space that is left can reach nothing — at which
+ * point the mark has no room and goes, and the log scrolls as it always did. */
+.chatlog { flex:0 1 auto; min-height:0; overflow-y:auto; padding:var(--oc-gutter) 0 6px; scroll-behavior:smooth; }
 .chatempty { max-width:var(--oc-measure); margin:10px auto 0; text-align:center; color:var(--fn-text-tertiary);
   font-size:12.5px; line-height:1.5; }
 .chatempty .oc-empty-title { color:var(--fn-text-primary); font-weight:600; }
@@ -1387,11 +1387,13 @@ dialog.docdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 1
 
 /* Measured against the window, not the screen: a media query cannot see how wide
    the window is, and this window is resizable.
-   The wordmark goes with it. The chat element is moved into this window whole,
-   so the mark comes along — and a narrow card is the one place there is no room
-   for it. The window already says which app it is in its own title bar, and the
-   session title in this bar is what somebody is actually reading. */
-.floatwin .chat-wordmark { display:none; }
+   The wordmark goes with it, and the box it stands in goes with it too — hiding
+   only the letters would leave an empty band in the middle of the card taking
+   half its height. The chat element is moved into this window whole, so both
+   come along, and a narrow card is the one place there is no room: the window
+   already says which app it is in its own title bar, and the space in here is
+   the conversation. */
+.floatwin .chat-mark { display:none; }
 @container fw (max-width: 400px) {
   .floatwin .chat { --oc-gutter:11px; }
   .floatwin .fw-title { display:none; }
@@ -1695,7 +1697,6 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
           <div class="chathome has-sidebar" id="chatHome">
               <div class="chat">
               <header class="chat-panel-head" id="chatPanelHead">
-                <span class="chat-wordmark">O Browser</span>
                 <button class="chat-session-title" id="chatSessionTitle" type="button" title="Rename session" aria-label="Rename current session">Chat Session</button>
                 <span class="grow"></span>
                 <button class="chat-head-btn chat-close" id="chatCloseFloat" type="button" title="Close floating chat" aria-label="Close floating chat" hidden><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
@@ -1706,6 +1707,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                 <button class="latest-btn" id="chatLatest" type="button" hidden>Latest messages</button>
                 <div class="chatinner" id="chatLogInner"></div>
               </div>
+              <div class="chat-mark"><span class="chat-wordmark">O Browser</span></div>
               <div class="chatfoot">
                 <div class="chatinner2">
                   <div class="chat-network" id="chatNetwork" hidden><span>Connection lost. Your conversation is still here.</span><button type="button" id="chatReconnect">Reconnect</button></div>
@@ -2709,6 +2711,45 @@ function paintChatEmpty() {
   if (e) e.hidden = !!(chatInner && chatInner.childElementCount);
 }
 
+/**
+ * The wordmark fades by however much of itself actually fits.
+ *
+ * It stands between the conversation and the composer, so the space it has is
+ * whatever the conversation has not taken — which starts as most of the column
+ * and falls to nothing as the conversation grows. A wordmark in a box that is
+ * shorter than the wordmark is clipped through the middle of the letters, and
+ * that reads as a rendering fault rather than as a mark giving way, so the
+ * opacity is the fraction of the mark the box can show.
+ *
+ * Measured rather than toggled, because the space does not arrive in steps: it
+ * shrinks continuously as messages are added, and a mark that appears and
+ * disappears on a threshold blinks. A browser with no ResizeObserver keeps the
+ * mark at full strength, which is where it starts and where it is meant to be
+ * seen.
+ */
+function markFit() {
+  const box = document.querySelector(".chat-mark");
+  const mark = document.querySelector(".chat-wordmark");
+  if (!box || !mark) return;
+  const apply = () => {
+    const room = box.clientHeight;
+    const need = mark.offsetHeight;
+    if (!need) return;
+    const fit = Math.max(0, Math.min(1, room / need));
+    mark.style.setProperty("--mark-fade", fit.toFixed(3));
+  };
+  apply();
+  if (typeof ResizeObserver === "function") {
+    let pending = 0;
+    new ResizeObserver(() => {
+      if (pending) return;
+      // one per frame: this fires for every message that lands, and laying out
+      // for each one of them is work for a number nobody can see changing
+      pending = requestAnimationFrame(() => { pending = 0; apply(); });
+    }).observe(box);
+  }
+}
+
 function chatNote(kind, text, opts) {
   if (kind === "error") setChatStatus("error", "Error");
   return addMsg("a", text, { ...(opts || {}), label: kind === "error" ? "Error" : "Octop", error: kind === "error" });
@@ -3307,6 +3348,7 @@ function wireChat() {
   histLoad();
   for (const m of HIST) addMsg(m.role === "user" ? "u" : "a", m.content);
   paintChatEmpty();
+  markFit();
   chatScroll();
   // a session that was mid-run when the page went away picks itself back up
   sessionId();
