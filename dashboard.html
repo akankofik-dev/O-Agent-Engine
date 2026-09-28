@@ -331,6 +331,13 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
    wider gutter on both sides is what makes a chat look padded rather than
    placed. */
 .chat { --oc-measure:720px; --oc-gutter:calc(18px * var(--fn-dens));
+  /* the reading inset: the gutter, widened to centre a measure of --oc-measure
+     on a wide surface. Written out longhand three times it had already drifted
+     from the fourth place that had its own number, which is how the float
+     window's bar ended up six pixels left of its own conversation. A custom
+     property resolves 100% per using element, so the bar and the composer
+     still inset by their own width. */
+  --oc-inset:max(var(--oc-gutter), calc((100% - var(--oc-measure)) / 2 + var(--oc-gutter)));
   container-type:inline-size; container-name:chat; }
 
 /* OpenCode layout: the chat is the app. Messages take the full height, the
@@ -353,7 +360,7 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * column, and simply uses the gutter on a narrow one, which is the same number
  * it would have used anyway. */
 .chat > .oc-status { flex:none; display:flex; align-items:center; gap:8px; min-width:0;
-  padding:3px max(var(--oc-gutter), calc((100% - var(--oc-measure)) / 2 + var(--oc-gutter)));
+  padding:3px var(--oc-inset);
   border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary);
   font-size:10.5px; color:var(--fn-text-tertiary); }
 /* The bar is the button plus air, rather than a height the button has to fit
@@ -380,7 +387,7 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * left edge is the same edge the messages start on. */
 .chat-panel-head { flex:none; display:flex; align-items:stretch; gap:5px;
   min-height:calc(var(--oc-btn) + 11px);
-  padding:0 max(var(--oc-gutter), calc((100% - var(--oc-measure)) / 2 + var(--oc-gutter)));
+  padding:0 var(--oc-inset);
   border-bottom:1px solid var(--fn-border-secondary); background:var(--fn-bg-primary); }
 
 /* The wordmark, standing in the space between the conversation and the composer.
@@ -1296,7 +1303,7 @@ body.tab-chat .wb-head { display:none; }
 
 /* composer */
 .chatfoot { flex:none;
-  padding:calc(8px * var(--fn-dens)) max(var(--oc-gutter), calc((100% - var(--oc-measure)) / 2 + var(--oc-gutter))) calc(11px * var(--fn-dens));
+  padding:calc(8px * var(--fn-dens)) var(--oc-inset) calc(11px * var(--fn-dens));
   border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-primary); }
 .chatmeta { font-size:10.5px; color:var(--fn-text-tertiary); margin:0 0 5px 2px; display:flex; gap:8px; align-items:center; }
 .chatmeta a { color:var(--fn-text-tertiary); text-decoration:none; border-bottom:1px dotted var(--fn-border-tertiary); }
@@ -1434,6 +1441,21 @@ dialog.docdlg { border:1px solid var(--fn-border-primary);
   border-radius:calc(8px * var(--fn-radius-scale)); padding:0;
   width:min(760px,92vw); background:var(--fn-bg-primary); color:var(--fn-text-primary); }
 dialog.docdlg::backdrop { background:rgba(0,0,0,.5); }
+/* The one that asks. Same shell as the document dialog above, narrower, and the
+   same reason it is a <dialog> and not a div: showModal() brings the focus trap,
+   the Escape key and the backdrop, all of which a hand-rolled overlay gets wrong
+   at some point. There is no undo in this app, so this is the only thing between
+   a misclick and a lost conversation. */
+dialog.confdlg { border:1px solid var(--fn-border-primary);
+  border-radius:calc(8px * var(--fn-radius-scale)); padding:0;
+  width:min(400px,92vw); background:var(--fn-bg-primary); color:var(--fn-text-primary); }
+dialog.confdlg::backdrop { background:rgba(0,0,0,.5); }
+dialog.confdlg .dhead { padding:14px; }
+dialog.confdlg .dhead b { font-size:12.5px; font-weight:550; line-height:1.5; }
+dialog.confdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 14px;
+  border-top:1px solid var(--fn-border-secondary); }
+dialog.confdlg #confOk { color:var(--fn-color-danger);
+  border-color:color-mix(in srgb, var(--fn-color-danger) 40%, var(--fn-border-primary)); }
 dialog.docdlg .dhead { display:flex; align-items:center; gap:10px; padding:12px 14px;
   border-bottom:1px solid var(--fn-border-secondary); }
 dialog.docdlg .dhead b { font-size:12.5px; }
@@ -1704,13 +1726,15 @@ dialog.docdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 1
    window narrower than that would show it shrunk to a stamp, which is worse than
    showing nothing. */
 /* The chat's bar, inside a window.
-   Its padding is set for the page, where it stays aligned to a measure; inside
-   a window there is no measure, so it indented itself by a calculation that
-   resolved to almost nothing and left the buttons 11px from the edge while the
-   window's own controls sat 7px away. It lines up with them instead. */
+   The right-hand 7px is deliberate and stays: the window's own controls sit
+   7px from that edge and the bar lines up with them.
+   The left was pinned to a flat 12px, which is not the same thing — there is
+   no control on the left to line up with. The conversation, the composer and
+   the status line all inset by the same --oc-inset the page uses, so the bar
+   does too, and the tabs sit on top of the text they belong to. */
 .floatwin .chat-panel-head { background:var(--fn-bg-secondary);
   border-bottom:1px solid var(--fn-border-primary);
-  padding:0 7px 0 12px; }
+  padding:0 7px 0 var(--oc-inset); }
 
 .floatwin .chat-mark { display:flex; }
 @container fw (max-width: 380px) {
@@ -2427,7 +2451,15 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
             </div>
           </div>
 
-          <dialog class="aidl" id="addAiDlg">
+          <dialog class="confdlg" id="confDlg">
+  <div class="dhead"><b id="confMsg"></b></div>
+  <div class="dfoot"><div class="grow"></div>
+    <button class="btn sm" type="button" id="confNo">Cancel</button>
+    <button class="btn sm" type="button" id="confOk">Delete</button>
+  </div>
+</dialog>
+
+<dialog class="aidl" id="addAiDlg">
             <div class="ai-head">
               <b id="aiTitle">Add AI</b>
               <div class="grow"></div>
@@ -4811,7 +4843,7 @@ async function activateProfile(id) {
 }
 
 async function removeProfile(p) {
-  if (!window.confirm("Delete agent " + p.name + "? Its SOUL.md and MEMORY.md go too.")) return;
+  if (!await uiConfirm("Delete agent " + p.name + "? Its SOUL.md and MEMORY.md go too.")) return;
   try {
     await API.del("/api/config/agents/profile?id=" + encodeURIComponent(p.id));
     if (AGENT.editingProfile === p.id) closeProfileForm();
@@ -4905,7 +4937,7 @@ async function saveDoc() {
 async function resetDoc() {
   const d = AGENT.doc;
   if (!d || !d.file || !AGENT.docs.id) return;
-  if (!window.confirm("Replace " + DOC_META[d.which].title + " with the built-in template?")) return;
+  if (!await uiConfirm("Replace " + DOC_META[d.which].title + " with the built-in template?", "Replace")) return;
   try {
     await API.post("/api/agents/" + encodeURIComponent(AGENT.docs.id) + "/documents/reset", { which: d.which });
     await loadAgentDocs(AGENT.docs.id);
@@ -6477,7 +6509,7 @@ async function aiDeleteService(id) {
   const msg = used.length
     ? "Remove " + p.name + "? " + used.length + " agent(s) use it and will be removed too."
     : "Remove " + p.name + "?";
-  if (!window.confirm(msg)) return;
+  if (!await uiConfirm(msg, "Remove")) return;
   try {
     await API.del("/api/config/agents/provider?id=" + encodeURIComponent(id));
     if (ADDAI.providerId === id) ADDAI.providerId = null;
@@ -7040,6 +7072,49 @@ function sessionId() {
   return id;
 }
 
+/** Ask before something irreversible, in a dialog that is ours.
+ *
+ * window.confirm is a browser dialog: its own chrome, its own two buttons, and a
+ * page dimmed behind it, dropped into the middle of a window that is otherwise
+ * all of ours. It also sat in front of the one action here with no undo —
+ * deleting a session, an agent, a document or a provider — while the × on a
+ * session tab skipped it entirely, so one small click either asked or did not
+ * depending on which × it was.
+ *
+ * A <dialog> with showModal() is what the file already uses twice, and it comes
+ * with the focus trap, the Escape key and the backdrop that a hand-rolled
+ * overlay ends up getting wrong. Cancel is focused first, because the default
+ * answer to "are you sure" should be no.
+ *
+ * Resolves true to go ahead. The caller awaits it, so every call site is in an
+ * async function already or becomes one. */
+function uiConfirm(msg, okLabel) {
+  const dlg = $("confDlg");
+  if (!dlg) return Promise.resolve(window.confirm(msg));
+  $("confMsg").textContent = msg;
+  $("confOk").textContent = okLabel || "Delete";
+  const okBtn = $("confOk"), noBtn = $("confNo");
+  return new Promise(resolve => {
+    const done = (v) => {
+      okBtn.removeEventListener("click", yes);
+      noBtn.removeEventListener("click", no);
+      dlg.removeEventListener("cancel", no);
+      dlg.removeEventListener("click", back);
+      if (dlg.open) dlg.close();
+      resolve(v);
+    };
+    const yes = () => done(true);
+    const no = () => done(false);
+    const back = e => { if (e.target === dlg) no(); };   /* the backdrop itself */
+    okBtn.addEventListener("click", yes);
+    noBtn.addEventListener("click", no);                /* the button, not only Escape */
+    dlg.addEventListener("cancel", no);                 /* Escape; no default close */
+    dlg.addEventListener("click", back);
+    dlg.showModal();
+    noBtn.focus();
+  });
+}
+
 /** forget which one is open, so the next sessionId() mints a fresh one */
 function sessionForget() {
   ACTIVE_SESSION = null;
@@ -7123,10 +7198,10 @@ function sesDelete(id) {
   API.post("/api/agent/forget", { sessionId: id }).catch(() => {});
 }
 
-function sesWipe() {
+async function sesWipe() {
   const ids = SESS.list.map(s => s.id);
   if (!ids.length) return;
-  if (!confirm("Delete " + ids.length + (ids.length === 1 ? " session" : " sessions") + "? This cannot be undone.")) return;
+  if (!await uiConfirm("Delete " + ids.length + (ids.length === 1 ? " session" : " sessions") + "? This cannot be undone.", "Delete all")) return;
   SESS.list = [];
   sessionForget();
   histLoad();
@@ -7168,10 +7243,14 @@ function paintSessionTabs(shown, active) {
     close.className = "tab-close";
     close.textContent = "×";
     close.setAttribute("aria-label", "Close session tab");
-    close.addEventListener("click", e => {
+    close.addEventListener("click", async e => {
       e.stopPropagation();
+      /* An empty session that is the current one has nothing in it to lose, so
+         closing it only stops it being the current one — same as before, and no
+         question asked. Anything else is a conversation, and the list's × already
+         asked before it did this. Now both do. */
       if (s.id === sessionId() && !s.hist.length) { sessionForget(); histLoad(); sesShow(); return; }
-      sesDelete(s.id);
+      if (await uiConfirm('Delete "' + (s.title || "empty session") + '"?')) sesDelete(s.id);
     });
     tab.appendChild(close);
     // the active tab renames, any other tab switches to
@@ -7221,9 +7300,9 @@ function paintSessions() {
       del.textContent = "×";
       del.title = "Delete this session";
       del.setAttribute("aria-label", "Delete " + (s.title || "empty session"));
-      del.addEventListener("click", (e) => {
+      del.addEventListener("click", async (e) => {
         e.stopPropagation();
-        if (confirm('Delete "' + (s.title || "empty session") + '"?')) sesDelete(s.id);
+        if (await uiConfirm('Delete "' + (s.title || "empty session") + '"?')) sesDelete(s.id);
       });
       const menu = document.createElement("button");
       menu.className = "ses-del";
@@ -7260,12 +7339,10 @@ function paintSessions() {
 }
 
 function wireSessions() {
-  for (const id of ["sesNew"]) {
-    const b = $(id);
-    if (b) b.addEventListener("click", () => sesStartNew());
-  }
-  const openAll = $("sesOpenAll");
-  if (openAll) openAll.addEventListener("click", () => setTab("sessions"));
+  /* sesNew and sesOpenAll were wired here and guarded, and neither id is in the
+     markup: the panel holds sesCount, sesList and sesWipe and nothing else. The
+     + that starts a session is #chatNew, in the chat's own tab strip, wired
+     there. A one-element loop had been hiding that. */
   const wipe = $("sesWipe");
   if (wipe) wipe.addEventListener("click", () => sesWipe());
 
