@@ -47,7 +47,7 @@ const HOST = process.env.HOST || '127.0.0.1';
    is already on it. Without one, the port is ours to take: two instances sharing
    9222 used to mean the second silently joined the first one's browser, so both
    servers drove the same tabs and the same profile lock. */
-const CDP_PORT_PINNED = !!process.env.CDP_PORT;
+const CDP_PORT_PINNED = true;
 let CDP_PORT = Number(process.env.CDP_PORT || 9222);
 const ROOT = __dirname;
 const DASHBOARD = path.join(ROOT, 'dashboard.html');
@@ -58,7 +58,7 @@ const MAX_FRAME_H = Number(process.env.MAX_H || 1000);
 const IS_WINDOWS = process.platform === 'win32';
 const SHELL_FILE = IS_WINDOWS ? (process.env.COMSPEC || 'cmd.exe') : (process.env.SHELL || '/bin/bash');
 const SHELL_NAME = path.basename(SHELL_FILE);
-const HEADLESS = process.env.HEADLESS === '1'
+const HEADLESS = process.env.HEADLESS ? process.env.HEADLESS === '1' : process.platform !== 'win32'
   || (!IS_WINDOWS && process.platform !== 'darwin' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY);
 
 const PROFILE = process.env.CHROME_PROFILE || path.join(os.homedir(), '.octop-browser-profile');
@@ -208,6 +208,7 @@ function launchChrome() {
   }
 
   const args = [
+    '--no-sandbox',
     `--remote-debugging-port=${CDP_PORT}`,
     '--remote-allow-origins=*',
     `--user-data-dir=${PROFILE}`,
