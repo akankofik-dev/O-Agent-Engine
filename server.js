@@ -129,6 +129,48 @@ const clients = new Set();
 function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+/* ------------------------- one browser action at a time ------------------ *
+ * A tail of the promise chain. Anything that dispatches input to the page goes
+ * through here, and it goes one at a time.
+ *
+ * STATE.acting existed for exactly this and nothing ever read it: it counted
+ * the actions in flight and the counter was write-only, so the promise in its
+ * own comment — that the person's own clicks cannot pull the agent off the tab
+ * it is driving mid-action — was never kept.
+ *
+ * The problem is real and it is not only about the person. A navigate waits up
+ * to twelve seconds for the page to load, and a click dispatched into that
+ * window lands on whatever is on screen when it arrives — a page still
+ * swapping in, not the page the agent decided to click. Two agents would be
+ * the same problem, and the run lock keeps only one going, but the person is
+ * not an agent and the run lock does not stop them; the preview is theirs to
+ * reach into while the agent works.
+ *
+ * So the actions are serialised rather than refused. Refusing would be the
+ * wrong answer for the person: the preview is a live browser they are meant to
+ * be able to use, and "the agent is busy" on every click would turn it into a
+ * picture of a browser. Waiting is not a refusal — the click still happens, a
+ * moment later, when the page it was aimed at is the page on screen.
+ *
+ * The tail is reset to a resolved promise after every action, so one that
+ * rejects does not wedge everything queued behind it.
+ * ------------------------------------------------------------------------ */
+let actionTail = Promise.resolve();
+let actionQueued = 0;
+
+function withActionLock(fn) {
+  // run whether the previous action settled or threw, and keep this action's
+  // outcome out of the tail so one failure cannot stop the queue behind it
+  const mine = actionTail.then(() => fn(), () => fn());
+  actionTail = mine.then(() => undefined, () => undefined);
+  actionQueued += 1;
+  STATE.acting = actionQueued;
+  return mine.finally(() => {
+    actionQueued -= 1;
+    STATE.acting = actionQueued;
+  });
+}
+
 function log(...args) { console.log(new Date().toISOString().slice(11, 19), ...args); }
 function logErr(...args) { console.error(new Date().toISOString().slice(11, 19), ...args); }
 
@@ -980,12 +1022,7 @@ async function doAction(body) {
         : ' — open one with browser_tabs action "new"'));
   }
   const sid = sess.sessionId;
-  STATE.acting += 1;
-  try {
-    return await doActionOn(act, body, sess, sid);
-  } finally {
-    STATE.acting -= 1;
-  }
+  return withActionLock(() => doActionOn(act, body, sess, sid));
 }
 
 async function doActionOn(act, body, sess, sid) {
@@ -1271,8 +1308,7 @@ async function doTabs(body) {
   }
 
   if (action === 'new') {
-    STATE.acting += 1;
-    try {
+    return withActionLock(async () => {
       const t = await send('Target.createTarget', { url: body.url || 'about:blank', background: !!body.background });
       await sleep(350);
       // a page appears as a target; the session gives it a tabId of its own
@@ -1291,9 +1327,7 @@ async function doTabs(body) {
       else { broadcastContext(); broadcastTabs(); }
       const live = BROWSER.resolve(tab.tabId) || tab;
       return { tabId: tab.tabId, url: live.url, title: live.title, tabs: tabList(), agentTabId: BROWSER.agentTabId };
-    } finally {
-      STATE.acting -= 1;
-    }
+    });
   }
 
   if (action === 'activate') {
@@ -1304,14 +1338,11 @@ async function doTabs(body) {
       throw new Error('no such tab: ' + (wanted || '(none given)')
         + (known.length ? ' — open tabs: ' + known.join(', ') : ' — no tabs are open'));
     }
-    STATE.acting += 1;
-    try {
+    return withActionLock(async () => {
       setAgentTarget(tab.targetId, true, 'agent activated a tab');
       await sleep(250);
       return { tabId: tab.tabId, tabs: tabList(), agentTabId: BROWSER.agentTabId, focusedTabId: BROWSER.focusedTabId };
-    } finally {
-      STATE.acting -= 1;
-    }
+    });
   }
 
   if (action === 'close') {
@@ -1424,6 +1455,14 @@ function statusObject() {
        can never have and letterbox itself. */
     frame: { maxW: MAX_FRAME_W, maxH: MAX_FRAME_H, quality: QUALITY },
     screencasting: STATE.screencasting,
+    /* how many browser actions are queued or running. Read here so the field
+       the comment has been promising is actually answerable: while this is
+       above zero, an action a person makes on the preview waits for the agent's
+       action to finish rather than landing in the middle of it. The dashboard
+       can grey the preview or say "the agent is mid-action" off this, and
+       anything asking whether it is safe to poke the browser right now has one
+       number to read instead of guessing. */
+    acting: STATE.acting,
     attached: ctx.hasSession,
     tabId: ctx.tabId,
     agentTabId: ctx.agentTabId,
