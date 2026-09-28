@@ -593,8 +593,34 @@ body.tab-chat .wb-card { padding:0; }
    * overlay offers and the reason it is only used where a column will not fit. */
   #p-chat .chathome { position:relative; }
   #p-chat .oc-side { position:absolute; top:var(--oc-side-top,0px); right:0; bottom:0; z-index:3;
-    width:min(220px,72vw); box-shadow:-10px 0 24px rgba(0,0,0,.22); }
+    width:min(220px,72vw); box-shadow:-10px 0 24px rgba(0,0,0,.22);
+    transform:translateX(0);
+    transition:transform .22s cubic-bezier(.32,.72,0,1); }
+  /* Where it comes from.
+   *
+   * It was appearing rather than arriving: one frame it was not there and the
+   * next it was, which for a panel that covers a third of the conversation is
+   * the most abrupt thing in the layout and the only one with no transition on
+   * it. A panel this size that materialises reads as a glitch; the same panel
+   * that slides in from the edge it is anchored to reads as a drawer, which is
+   * what it is.
+   *
+   * It starts a full panel-width to the right and travels left into place — the
+   * direction it is pinned to, so the motion comes from where the panel lives
+   * rather than from the top of the screen. Vertical motion would be wrong here
+   * even as a fade's companion: the list does not drop into the panel, it slides
+   * along the edge, and a panel that appears to fall is a panel that looks like
+   * it is arriving from somewhere above it, which nothing is.
+   *
+   * The class is the starting position, added before the transition and removed
+   * straight after — see setOpen, which reads a layout property in between
+   * because a transition from a position the element has never been in does not
+   * run, it just jumps. */
+  #p-chat .oc-side.oc-side-out { transform:translateX(100%); }
   .chat-head-btn.oc-side-toggle[aria-expanded="true"] { background:var(--fn-bg-hover); }
+  @media (prefers-reduced-motion:reduce) {
+    #p-chat .oc-side { transition:none; }
+  }
 }
 /* inside a floating window the status line is narrower, and the provider name
    already lives in the window's own title */
@@ -7051,24 +7077,85 @@ function wireSessions() {
       }
     };
 
+    /* Whether the list is a floating overlay or a column of its own. It only
+       moves when it is floating: a column that is part of the grid appears by
+       being there, and sliding a column that has a neighbour to make room for
+       looks like the conversation is being shoved sideways. */
+    const isOverlay = () => {
+      try { return window.matchMedia("(max-width:900px)").matches; } catch { return false; }
+    };
+    const noMotion = () => {
+      try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
+    };
+    const SLIDE_MS = 220;
+    let closeTimer = 0;
+
+    /* What the list is meant to be doing, which is not the same question as
+     * whether it is currently in the layout: for 220ms after a close it is very
+     * much in the layout and on its way out. Deriving the next click from
+     * `hidden` therefore gets it backwards, so the intent is kept here and the
+     * button just flips it. It also makes a click during the slide-out open the
+     * list again rather than being ignored, which is what a person who changes
+     * their mind halfway through closing expects. */
+    let wantOpen = false;
+
     const setOpen = (on) => {
-      side.hidden = !on;
-      if (chathome) chathome.classList.toggle("has-sidebar", on);
-      toggle.setAttribute("aria-expanded", on ? "true" : "false");
-      // a toggle's label is what pressing it will do, not what it currently is;
-      // a screen reader user gets that from the name, and everyone else gets it
-      // from the tooltip
-      const what = on ? "Hide the session list" : "Show the session list";
-      toggle.title = what;
-      toggle.setAttribute("aria-label", what);
-      rehome(on);
-      measureHead();
+      wantOpen = on;
+      const slide = isOverlay() && !noMotion();
+      clearTimeout(closeTimer);
+
+      if (!on && slide && !side.hidden) {
+        /* Closing has to let the panel travel first.
+         *
+         * `hidden` takes the element out of the layout in the same tick, so a
+         * transition declared on it would never run: there is nothing to
+         * animate by the time the browser looks. So the panel is put into its
+         * off-screen position, left in the layout long enough to travel, and
+         * only then hidden — and the button is rehomed after that, so it rides
+         * out with the panel instead of teleporting to the header while the
+         * panel is still on screen without it. */
+        side.classList.add("oc-side-out");
+        if (chathome) chathome.classList.remove("has-sidebar");
+        toggle.setAttribute("aria-expanded", "false");
+        const what = "Show the session list";
+        toggle.title = what;
+        toggle.setAttribute("aria-label", what);
+        closeTimer = setTimeout(() => {
+          side.hidden = true;
+          side.classList.remove("oc-side-out");
+          rehome(false);
+          measureHead();
+        }, SLIDE_MS);
+      } else {
+        side.hidden = !on;
+        side.classList.remove("oc-side-out");
+        if (on && slide) {
+          /* Opening needs the starting position committed before the
+           * transition is asked for. Removing the class in the same tick as
+           * adding it means the browser only ever sees the destination, and
+           * there is no transition to run — reading offsetWidth is what forces
+           * it to lay the start out first. */
+          side.classList.add("oc-side-out");
+          void side.offsetWidth;
+          side.classList.remove("oc-side-out");
+        }
+        if (chathome) chathome.classList.toggle("has-sidebar", on);
+        toggle.setAttribute("aria-expanded", on ? "true" : "false");
+        // a toggle's label is what pressing it will do, not what it currently
+        // is; a screen reader user gets that from the name, and everyone else
+        // gets it from the tooltip
+        const what = on ? "Hide the session list" : "Show the session list";
+        toggle.title = what;
+        toggle.setAttribute("aria-label", what);
+        rehome(on);
+        measureHead();
+      }
       try { localStorage.setItem("octop:oc-sidebar", on ? "1" : "0"); } catch { }
     };
     let saved = null;
     try { saved = localStorage.getItem("octop:oc-sidebar"); } catch { }
     setOpen(saved === null ? true : saved === "1");
-    toggle.addEventListener("click", () => setOpen(side.hidden));
+    toggle.addEventListener("click", () => setOpen(!wantOpen));
     window.addEventListener("resize", measureHead);
     // the session tabs are re-rendered as sessions come and go, which changes
     // their height, so the offset is re-taken whenever the list is opened
