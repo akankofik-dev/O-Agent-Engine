@@ -169,8 +169,27 @@ module.exports = {
     return { via: ID, note: 'browser-use observes as part of its own loop' };
   },
 
+  /**
+   * browser-use drives its own loop, and that loop is what retries: an action
+   * that does not land is retried inside the agent, not out here. Re-running the
+   * task from the router would start a second agent over the same browser, which
+   * is two agents fighting over one tab — the exact thing the run lock exists to
+   * prevent.
+   *
+   * What is worth doing is dropping a dead session. `session` holds a browser
+   * connection, and once that has gone every later task fails the same way while
+   * the probe cache goes on calling the engine available. A state reset, not a
+   * retry: retried stays false.
+   */
   async recover() {
-    return { retried: false, reason: 'browser-use retries inside its own loop' };
+    if (session) {
+      if (session.browser) { try { await session.browser.close(); } catch { /* already gone */ } }
+      session = null;
+      probeCache = { at: 0, value: null };
+      return { retried: false, reason: 'the session was dropped so the next task builds a new one' };
+    }
+    probeCache = { at: 0, value: null };
+    return { retried: false, reason: 'no session was held (the probe cache was still dropped)' };
   },
 
   async shutdown() {

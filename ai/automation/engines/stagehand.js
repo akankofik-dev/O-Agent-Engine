@@ -196,8 +196,28 @@ module.exports = {
     return { via: ID, result: r && typeof r === 'object' && 'result' in r ? r.result : r };
   },
 
+  /**
+   * Stagehand self-heals the part that is hard — it re-observes when a selector
+   * goes stale, inside its own act(). What it cannot do from here is notice
+   * that the instance itself has gone: `stage` is a module-level singleton
+   * holding a browser connection, and if that connection has dropped, every
+   * later act() fails identically and the cached probe keeps reporting the
+   * engine as available.
+   *
+   * So the same reset as the MCP engine: drop the instance and the probe cache,
+   * so the next action builds a new one against the browser we already have.
+   * That is a state reset, not a retry of the call that just failed, so it does
+   * not claim to have retried.
+   */
   async recover() {
-    return { retried: false, reason: 'stagehand re-observes by itself' };
+    if (stage) {
+      try { await stage.close(); } catch { /* already gone */ }
+      stage = null;
+      probeCache = { at: 0, value: null };
+      return { retried: false, reason: 'the stagehand instance was dropped so the next action rebuilds it' };
+    }
+    probeCache = { at: 0, value: null };
+    return { retried: false, reason: 'no stagehand instance was held (the probe cache was still dropped)' };
   },
 
   async shutdown() {

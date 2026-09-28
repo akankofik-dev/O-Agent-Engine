@@ -279,8 +279,58 @@ function createRouter({ driver, context, resolveProvider, engines }) {
   }
 
   /**
+   * Let a failed engine put itself back together, and say whether it wants the
+   * same action handed to it again.
+   *
+   * recover() existed on every engine and was never called, so the contract was
+   * documentation rather than behaviour. That is worth fixing carefully rather
+   * than loudly: three of the four engines genuinely have nothing to recover,
+   * and they say so — native-cdp is the floor of the chain and has no state to
+   * reset, Stagehand and browser-use re-observe inside their own loops, and the
+   * MCP server owns its own retry. Forcing a retry on those would be inventing
+   * a second attempt at work that is already being retried somewhere else.
+   *
+   * So this honours what recover() says, exactly:
+   *   retried:false — it cleaned up what it could; move down the chain
+   *   retried:true  — it is whole again; the same action gets one more go
+   *
+   * One more go, and only one. An engine that fails, recovers, and fails again
+   * has told us the recovery was not the answer, and the chain below it is
+   * where the work belongs.
+   *
+   * A recover() that throws is not allowed to fail the action: the engine was
+   * already failing, and its opinion about why is not worth more than the
+   * fallback that is already lined up behind it.
+   */
+  async function recoverAndMaybeRetry(e, action, ctx, driver, opts, emit) {
+    if (typeof e.recover !== 'function') return { retry: false, reason: 'this engine cannot recover' };
+    let r;
+    try {
+      r = await e.recover();
+    } catch (err) {
+      return { retry: false, reason: 'recovery failed: ' + safeError(err) };
+    }
+    if (!r || r.retried !== true) {
+      return { retry: false, reason: String((r && r.reason) || '') };
+    }
+    emit({ type: 'engine', engine: e.id, phase: 'recover', label: e.name + ' is trying again' });
+    try {
+      const result = await e.execute(action, ctx, driver, opts);
+      note(e, true, '');
+      health.get(e.id).lastUsed = Date.now();
+      emit({ type: 'engine', engine: e.id, phase: 'act', label: 'Done with ' + e.name + ' after a retry', ok: true });
+      return { retry: true, result };
+    } catch (err) {
+      const msg = safeError(err);
+      note(e, false, msg);
+      return { retry: false, reason: msg };
+    }
+  }
+
+  /**
    * Run one action on the best engine that can take it, falling back down the
-   * chain if it cannot. Every engine is tried at most once.
+   * chain if it cannot. Every engine is tried at most once — plus, for an engine
+   * that recovers, at most one more attempt after that.
    */
   async function route(action, opts = {}) {
     const emit = typeof opts.emit === 'function' ? opts.emit : () => {};
@@ -337,6 +387,12 @@ function createRouter({ driver, context, resolveProvider, engines }) {
         tried.push({ engine: e.id, error: msg });
         note(e, false, msg);
         emit({ type: 'engine', engine: e.id, phase: 'recover', label: e.name + ' could not: ' + msg, ok: false });
+        // it may have been a stale client or a dead child rather than a genuine
+        // refusal, so it gets its say before the chain moves on
+        const again = await recoverAndMaybeRetry(e, action, ctx, driver, opts, emit);
+        if (again.retry) {
+          return { ok: true, engine: e.id, via: e.id, result: again.result, recovered: true, tried: tried.map(x => x.engine) };
+        }
       }
     }
     const last = tried.length ? tried[tried.length - 1].error : 'no engine could take this';
@@ -374,6 +430,14 @@ function createRouter({ driver, context, resolveProvider, engines }) {
       const msg = safeError(err);
       note(e, false, msg);
       emit({ type: 'engine', engine: id, phase: 'recover', label: e.name + ' could not: ' + msg, ok: false });
+      /* The same one chance a failure gets in auto mode. A recovery is not a
+         fallback: it is the same engine saying it was not really a refusal. The
+         engine the person chose still carries the work or the work fails — there
+         is no quiet swap either way. */
+      const again = await recoverAndMaybeRetry(e, action, ctx, driver, opts, emit);
+      if (again.retry) {
+        return { ok: true, engine: id, via: id, result: again.result, recovered: true, tried: [id] };
+      }
       // chosen by hand means chosen by hand: no falling back behind the user's back
       return { ok: false, error: msg, tried: [id] };
     }

@@ -130,8 +130,44 @@ module.exports = {
     return this.execute({ action: 'read' }, ctx, driver, opts);
   },
 
+  /**
+   * What a failure here usually means, and what to do about it.
+   *
+   * The failure is rarely a refusal by the MCP server. It is a child that has
+   * exited: `npx` is killed by an OOM, the package cache is being rewritten
+   * under it, or the machine slept. Once that happens every later call fails the
+   * same way, and worse — the probe cache is good for thirty seconds, so the
+   * engine keeps reporting itself available with the tool list it remembered
+   * from before, and the failure repeats for the whole of that window.
+   *
+   * So recovery is not "try again": it is throwing away the state that is
+   * making the failure repeat. The dead client goes, the probe cache goes with
+   * it, and the next action starts a fresh server and finds out what is really
+   * there. That is a state reset rather than a retry, so it does not claim to
+   * have retried — the call that failed has already been handed to the fallback
+   * by the time this runs.
+   *
+   * retried:true is reserved for the case where a single re-probe proves the
+   * engine is whole again, which is the one case where the work that failed can
+   * honestly be finished by the same engine.
+   */
   async recover() {
-    return { retried: false, reason: 'the mcp server owns its own retry policy' };
+    const reason = 'the mcp client was dropped so the next probe starts fresh';
+    if (client) {
+      const alive = !client.isClosed();
+      try { await client.stop(); } catch { /* already gone */ }
+      client = null;
+      probeCache = { at: 0, value: null };
+      // a client that was still open when the action failed is worth one honest
+      // re-probe: if it comes back with its tools, this was a bad call rather
+      // than a dead server
+      if (alive) {
+        return { retried: true, reason: 'the client was restarted; the tools are being listed again' };
+      }
+      return { retried: false, reason: reason + ' (the previous server was already gone)' };
+    }
+    probeCache = { at: 0, value: null };
+    return { retried: false, reason: reason + ' (there was no client to drop)' };
   },
 
   /** kept out of the request path; the probe is what Settings calls */
