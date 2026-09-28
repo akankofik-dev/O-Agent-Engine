@@ -27,6 +27,9 @@
  *      rather than quietly replaced by another one.
  * ========================================================================= */
 
+const fs = require('fs');
+const path = require('path');
+
 const state = require('./state');
 const { hasContext, noContextError } = require('./context');
 
@@ -443,6 +446,48 @@ function createRouter({ driver, context, resolveProvider, engines }) {
     }
   }
 
+  /* Which of the packages this engine names is actually resolvable right now.
+   *
+   * Deliberately not a require() of the engine itself: importing browser-use
+   * loads a browser automation library, and asking "is it installed" must not be
+   * the thing that installs it. require.resolve() against the manifest finds the
+   * folder without running any of it.
+   *
+   * npx candidates are not in node_modules and are not ours to remove, so they
+   * report null and the UI shows the warm-the-cache action instead. */
+/* Is there a node_modules/<pkg>/package.json in one of the directories above us?
+
+   Not require.resolve, which is the obvious tool and the wrong one. A package
+   whose "exports" map does not name ./package.json — which is most of them now —
+   makes it throw ERR_PACKAGE_PATH_NOT_EXPORTED for a package that is installed
+   and working. @browserbasehq/stagehand is one, and after a successful install of
+   it the engine was still reporting "not installed here", which then made the
+   Remove button refuse. Three of the four candidate answers fail the same way;
+   only the manifest on disk is a question with one answer, and reading it runs
+   none of the package's code. */
+function packageOnDisk(pkg) {
+  const segs = String(pkg).split('/');
+  /* a segment that climbs out of node_modules is not a package name, and this
+     walks the filesystem, so the path is checked before it is used */
+  if (segs.some(x => !x || x === '.' || x === '..')) return false;
+  let dir = __dirname;
+  for (;;) {
+    try { if (fs.existsSync(path.join(dir, 'node_modules', ...segs, 'package.json'))) return true; }
+    catch (e) { return false; }
+    const up = path.dirname(dir);
+    if (up === dir) return false;
+    dir = up;
+  }
+}
+
+  function installedFor(e) {
+    for (const i of (e.installs || [])) {
+      if (i.via !== 'npm') continue;
+      if (packageOnDisk(i.pkg)) return i.pkg;
+    }
+    return null;
+  }
+
   /** the public view for Settings: no secrets, no endpoints, no paths */
   function describe() {
     const cfg = state.load();
@@ -460,6 +505,11 @@ function createRouter({ driver, context, resolveProvider, engines }) {
           type: e.type,
           builtIn: !!e.builtIn,
           enabled,
+          /* what it would take to make this engine work, and whether the first
+             candidate is already here. Both are names from the engine's own
+             module — the view never invents a package. */
+          installs: (e.installs || []).map(i => ({ pkg: i.pkg, via: i.via })),
+          installed: installedFor(e),
           available: known ? h.available === true : null,
           status: !enabled ? 'disabled' : !known ? 'unknown' : (h.available ? 'available' : 'unavailable'),
           reason: enabled ? (known ? String(h.reason || '') : 'not checked yet') : 'turned off',

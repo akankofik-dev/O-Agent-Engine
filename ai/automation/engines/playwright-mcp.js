@@ -91,6 +91,12 @@ async function runProbe(endpoints) {
 
 module.exports = {
   id: ID,
+  /* It is run as `npx --yes <pkg>`, so npx fetches it the first time an action
+     routes here. There is nothing in node_modules to install and nothing this
+     app should own. The button still appears: it warms that cache, so the first
+     real action does not pay for the download, and the engine reads as ready
+     instead of failing once. */
+  installs: [{ pkg: BIN, via: 'npx' }],
   name: 'Playwright MCP',
   type: 'mcp',
   builtIn: false,

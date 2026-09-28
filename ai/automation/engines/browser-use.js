@@ -118,6 +118,10 @@ async function probe(endpoints, profile, resolveProvider) {
 
 module.exports = {
   id: ID,
+  /* PKGS is the fallback chain this adapter already walks: either package will
+     do, so either one that is there counts. The list is read in order, so the
+     SDK is offered first and the full package is the second try. */
+  installs: PKGS.map(p => ({ pkg: p, via: 'npm' })),
   name: 'Browser Use',
   type: 'sdk',
   builtIn: false,

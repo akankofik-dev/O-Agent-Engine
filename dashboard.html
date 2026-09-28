@@ -1446,6 +1446,18 @@ dialog.docdlg::backdrop { background:rgba(0,0,0,.5); }
    the Escape key and the backdrop, all of which a hand-rolled overlay gets wrong
    at some point. There is no undo in this app, so this is the only thing between
    a misclick and a lost conversation. */
+/* What npm is doing, while it does it. A spinner would say "working" for
+   three minutes and then either produce nothing or an error nobody saw. The
+   output is the only honest thing to show, and it is short enough to keep. */
+.au-log { margin-top:9px; padding:8px 10px; max-height:132px; overflow:auto;
+  border:1px solid var(--fn-border-secondary); border-radius:calc(5px * var(--fn-radius-scale));
+  background:var(--fn-bg-secondary); color:var(--fn-text-tertiary);
+  font-family:var(--fn-font-mono); font-size:10.5px; line-height:1.5;
+  white-space:pre-wrap; word-break:break-word; }
+.au-log b { color:var(--fn-text-primary); font-weight:600; }
+.au-log .bad { color:var(--fn-color-danger); }
+.au-acts { display:flex; gap:5px; flex:none; }
+
 dialog.confdlg { border:1px solid var(--fn-border-primary);
   border-radius:calc(8px * var(--fn-radius-scale)); padding:0;
   width:min(400px,92vw); background:var(--fn-bg-primary); color:var(--fn-text-primary); }
@@ -1873,8 +1885,13 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
   background:var(--fn-color-brand); animation:tpulse 1.15s ease-in-out infinite; }
 /* the engine list: a dot per engine, its real state, and nothing that lies */
 .au-list { display:flex; flex-direction:column; gap:1px; margin-top:9px; }
-.au-row { display:flex; align-items:center; gap:9px; padding:7px 2px;
+.au-row { display:flex; align-items:center; gap:9px; padding:7px 2px; min-height:38px;
   border-top:1px solid var(--fn-border-secondary); font-size:12.5px; }
+/* 38px is the height the install button makes, so it is stated rather than
+   derived. Without it the built-in engine — the one row with no button, since
+   it has nothing to install — came out five pixels short of the three below
+   it, and one line at a different height from its neighbours reads as
+   unfinished even when nothing is actually wrong. */
 .au-row:first-child { border-top:0; }
 .au-dot { width:7px; height:7px; border-radius:50%; flex:none; background:var(--fn-text-tertiary); }
 .au-dot.on { background:var(--fn-color-brand); }
@@ -2322,6 +2339,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                   </label>
                   <p class="set-note" id="auNote"></p>
                   <div class="au-list" id="auList"></div>
+                  <div class="au-log" id="auLog" hidden></div>
                   <div class="acts" style="display:flex;gap:6px;margin-top:11px">
                     <button class="btn sm" id="auCheck" type="button" title="Ask the server what is really installed">Check again</button>
                     <span class="ai-note" id="auShared"></span>
@@ -7860,7 +7878,7 @@ function actToolResult(ev) {
  *  can. Nothing here guesses, and nothing here is enabled by being listed.
  * ===================================================================== */
 
-const AU = { view: null, busy: false };
+const AU = { view: null, busy: false, job: null, jobTimer: 0 };
 
 /** one row per engine: its real state, and a switch that only works if it can */
 function paintAutomation() {
@@ -7945,6 +7963,42 @@ function paintAutomation() {
     if (e.reason && e.status !== "unknown") state.appendChild(document.createTextNode(" · " + e.reason));
     row.appendChild(state);
 
+    /* Install / Remove, and nothing else. An engine that is already up to date
+       has no button: there is no action that would mean anything. */
+    const installs = e.installs || [];
+    if (!e.builtIn && installs.length) {
+      const acts = document.createElement("div");
+      acts.className = "au-acts";
+      const busy = !!(AU.job && AU.job.running);
+      const mine = !!(AU.job && AU.job.engine === e.id);
+      if (e.installed) {
+        const rm = document.createElement("button");
+        rm.className = "btn sm"; rm.type = "button";
+        rm.textContent = busy ? "Working…" : "Remove";
+        rm.disabled = busy;
+        rm.title = "Uninstall " + e.installed + " — the engine stops working until it is installed again";
+        rm.addEventListener("click", () => enginePackage(e.id, "remove"));
+        acts.appendChild(rm);
+      } else {
+        const npx = installs[0].via === "npx";
+        const go = document.createElement("button");
+        go.className = "btn sm" + (mine ? " pri" : "");
+        go.type = "button";
+        go.textContent = busy ? "Working…" : (npx ? "Prepare" : "Install");
+        go.disabled = busy;
+        /* What this will actually run, which for an engine with more than one
+           candidate is more than one command. Naming only the first was a lie:
+           browser-use's first candidate is not on the public registry, and the
+           title is where a person goes to find out what a button does. */
+        go.title = npx
+          ? "Fetches " + installs[0].pkg + " now so the first action does not wait for it (npx keeps its own copy)"
+          : "npm install " + installs.map(x => x.pkg).join(", falling back to ");
+        go.addEventListener("click", () => enginePackage(e.id, "install"));
+        acts.appendChild(go);
+      }
+      row.appendChild(acts);
+    }
+
     const sw = document.createElement("label");
     sw.className = "au-sw";
     const box = document.createElement("input");
@@ -7962,6 +8016,8 @@ function paintAutomation() {
     list.appendChild(row);
   }
 
+  paintEngineJob();
+
   const ready = v.engines.filter(e => e.available === true).length;
   const shared = $("auShared");
   if (shared) {
@@ -7971,6 +8027,85 @@ function paintAutomation() {
   }
   const hint = $("auHint");
   if (hint) hint.textContent = v.unchecked ? ready + " available, " + v.unchecked + " unchecked" : ready + " available";
+}
+
+/* what npm is doing, said in words rather than a spinner.
+ *
+ * The three states that matter are the three a person can act on: running, done,
+ * failed. "Done" is not taken on trust — the page re-probes straight after, and
+ * the row above is the real answer, because an engine whose package installed
+ * cleanly can still fail to attach to this Chrome. */
+function paintEngineJob() {
+  const el = $("auLog");
+  if (!el) return;
+  const j = AU.job;
+  if (!j) { el.hidden = true; el.textContent = ""; return; }
+  el.hidden = false;
+  el.textContent = "";
+  const head = document.createElement("b");
+  const verb = j.running ? "Working" : j.state === "done" ? "Done" : j.state === "failed" ? "Failed" : "Last";
+  head.textContent = verb + (j.pkg ? " — " + j.pkg : "");
+  el.appendChild(head);
+  for (const line of (j.log || [])) {
+    const row = document.createElement("div");
+    if (line.indexOf("✗") === 0) row.className = "bad";
+    row.textContent = line;
+    el.appendChild(row);
+  }
+  if (j.error && !(j.log || []).some(l => l.indexOf(j.error) === 0)) {
+    const row = document.createElement("div");
+    row.className = "bad";
+    row.textContent = "✗ " + j.error;
+    el.appendChild(row);
+  }
+  el.scrollTop = el.scrollHeight;
+}
+
+/** Start an install or a removal, then follow it.
+ *
+ * The request only carries the engine id — the server looks the package up in
+ * the registry itself, so there is no name to send and no name to inject. It
+ * answers as soon as the work is under way, so there is nothing to await here
+ * beyond "it started"; the log comes from the poll. */
+async function enginePackage(id, mode) {
+  if (AU.job && AU.job.running) return;
+  const path = mode === "remove" ? "/api/automation/engine/remove" : "/api/automation/engine/install";
+  let started = false;
+  try {
+    const r = await API.post(path, { id });
+    AU.job = (r && r.job) ? r.job : { state: "failed", error: "the server said nothing useful", log: [] };
+    started = !!(r && r.ok);
+  } catch (e) {
+    /* API.post throws with the server's own words in the message, and those
+       are the only useful words: "no such engine" and "could not start npm"
+       are different problems and the page has to be able to say which. */
+    AU.job = { state: "failed", error: (e && e.message) || "could not reach the server", log: [] };
+  }
+  paintAutomation();
+  /* Only a job that actually started gets followed. Polling after a refusal
+     would replace the reason with the idle state the refusal left behind, and
+     the one line that said what went wrong would vanish unread. */
+  if (started) engineJobPoll();
+}
+
+/** follow npm until it stops.
+ *
+ * One timer, always cleared first, so a second press cannot leave two loops
+ * running against the same log and neither of them notices the other finished. */
+async function engineJobPoll() {
+  clearTimeout(AU.jobTimer);
+  try {
+    const r = await API.get("/api/automation/engine/job");
+    AU.job = (r && r.job) ? r.job : null;
+  } catch (e) {
+    AU.job = { state: "failed", error: "lost contact with the server", log: [] };
+  }
+  paintEngineJob();
+  if (AU.job && AU.job.running) { AU.jobTimer = setTimeout(engineJobPoll, 1500); return; }
+  /* It is done or it failed, and the cached availability is now a lie either
+     way: ask the server what is really installed and let the rows say so. */
+  if (AU.job && AU.job.state === "done") await loadAutomation(true);
+  else paintAutomation();
 }
 
 /** one place every change goes through, so the server is always the truth */

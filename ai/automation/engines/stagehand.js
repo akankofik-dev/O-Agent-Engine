@@ -136,6 +136,9 @@ const needContext = requireContext;
 
 module.exports = {
   id: ID,
+  /* the one package this adapter require()s, named by the constant it already
+     requires it through */
+  installs: [{ pkg: PKG, via: 'npm' }],
   name: 'Stagehand',
   type: 'sdk',
   builtIn: false,

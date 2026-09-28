@@ -1983,6 +1983,31 @@ async function handleApi(req, res, pathname) {
     return sendJson(res, 200, Object.assign({ ok: true }, automation.describe()));
   }
 
+  /* Installing an engine's package: starts the work and returns, because it is
+     minutes of work and a page blocked on an HTTP request for that is a page
+     that looks broken. The engine id is all it takes; see engineSpec() for why
+     that is not more than it sounds. */
+  if (pathname === '/api/automation/engine/install' && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, error: 'bad json: ' + e.message }); }
+    const j = engineJob(body.id, 'install');
+    return sendJson(res, j.ok ? 200 : 400, j);
+  }
+
+  if (pathname === '/api/automation/engine/remove' && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, error: 'bad json: ' + e.message }); }
+    const j = engineJob(body.id, 'remove');
+    return sendJson(res, j.ok ? 200 : 400, j);
+  }
+
+  /* what the install is doing, for the page to poll */
+  if (pathname === '/api/automation/engine/job' && req.method === 'GET') {
+    return sendJson(res, 200, { ok: true, job: engineJobView() });
+  }
+
   if (pathname === '/api/agent/cancel' && req.method === 'POST') {
     let body;
     try { body = JSON.parse(await readBody(req) || '{}'); }
@@ -2232,6 +2257,212 @@ const automation = aiAutomation.createRouter({
 
 function automationEndpoints(profile) {
   return { endpoints: cdpEndpoint ? { cdpWs: cdpEndpoint } : {}, profile, resolveProvider: id => aiStore.getProvider(id) };
+}
+
+/* ---------------------- installing an engine's package -------------------- *
+ * The security argument is in one place and it is short: the request carries an
+ * engine id, never a package name. The name is read out of the registry, from
+ * the same describe() the page already sees, and it is a name the engine module
+ * wrote next to the require() that uses it. There is no path from the request
+ * to the command line.
+ * ------------------------------------------------------------------------ */
+
+/* npm's own character set. Not the authority on what npm accepts — npm is. The
+   point is that a name that has to be safe because of where it came from should
+   also be safe on its own terms. */
+const PKG_OK = /^[@a-z0-9][a-z0-9@._/-]{0,150}$/i;
+const INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
+
+const engineJobState = { state: 'idle', engine: null, name: '', pkg: '', via: '',
+                         log: [], startedAt: 0, endedAt: 0, code: null, error: '' };
+let engineJobChild = null;
+/* One timer for the whole job rather than one per attempt, so a chain that hangs
+   on its second name is still stopped. node --check does not see an undeclared
+   name and this file is strict mode, so without this line the very first press
+   throws ReferenceError instead of installing anything. */
+let engineJobTimer = null;
+
+function engineJobNote(line) {
+  const s = String(line == null ? '' : line).replace(/\s+$/, '');
+  if (!s) return;
+  /* A stack frame is never the reason anything failed, and npm prints a dozen
+     of them. Installing browser-use filled the whole log with Playwright
+     frames and pushed the sentence that mattered — the download timed out —
+     off the end of what the page shows.
+
+     npm prefixes every line, frames included, so the line looks like
+     "npm error     at ClientRequest.<anonymous> (...)" and the "at" is in the
+     middle of it. What tells the two apart is the indentation: a frame is
+     always indented after the prefix and npm's own messages never are. So the
+     prefix is optional, and a frame must still be indented once it is gone.
+     The rest of the log is kept rather than trimmed to the last line, because
+     the first line of a failure is the code and the last is the sentence. */
+  if (/^\s*(?:npm\s+(?:error|warn)\s+)?\s+at\s+\S/.test(s)) return;
+  engineJobState.log.push(s.slice(0, 300));
+  if (engineJobState.log.length > 60) engineJobState.log.splice(0, engineJobState.log.length - 60);
+}
+
+/** the id is a lookup key and nothing else; the package comes from the registry */
+function engineSpec(id) {
+  const want = String(id == null ? '' : id);
+  if (!want || want.length > 64 || !/^[a-z0-9_-]{1,64}$/i.test(want)) return { error: 'no such engine' };
+  const view = automation.describe();
+  const e = view.engines.find(x => x.id === want);
+  if (!e) return { error: 'no such engine' };
+  if (e.builtIn) return { error: 'the built-in engine is always there' };
+  const installs = Array.isArray(e.installs) ? e.installs : [];
+  if (!installs.length) return { error: e.name + ' has nothing to install' };
+  return { engine: e, installs };
+}
+
+function engineJobView() {
+  return { state: engineJobState.state, engine: engineJobState.engine, name: engineJobState.name,
+           pkg: engineJobState.pkg, via: engineJobState.via, log: engineJobState.log.slice(-24),
+           startedAt: engineJobState.startedAt, endedAt: engineJobState.endedAt,
+           code: engineJobState.code, error: engineJobState.error,
+           running: !!engineJobChild };
+}
+
+/* Walk the engine's candidates until one of them installs.
+ *
+ * An engine can name more than one package because the adapter itself walks them:
+ * browser-use tries @browser-use/sdk and then browser-use, and either one will
+ * do. The installer used to take the first name and stop, so the button on that
+ * engine always failed — @browser-use/sdk is not on the public registry at all,
+ * and npm answered 404. An installer that does not follow the same chain the
+ * engine follows is not installing the engine, it is installing a guess.
+ *
+ * The log is kept across attempts on purpose. Both outcomes are worth reading:
+ * the package that worked, and the one that did not and why. A fresh log per
+ * attempt would show only the last thing that happened, which is the thing that
+ * worked, which is the half you did not need to see.
+ *
+ * The timeout is for the whole job rather than for each attempt, so a chain that
+ * hangs on its second name is still stopped.
+ */
+function engineJobAttempt(list, at, mode, spec) {
+  const e = spec.engine;
+  const pick = list[at];
+  if (!PKG_OK.test(pick.pkg)) {
+    engineJobGiveUp('that package name is not one npm accepts: ' + pick.pkg);
+    return;
+  }
+  const flags = ['--no-save', '--no-package-lock', '--no-audit', '--no-fund'];
+  const args = pick.via === 'npx'
+    ? ['--yes', pick.pkg, '--help']
+    : (mode === 'remove' ? ['uninstall', pick.pkg] : ['install', pick.pkg]).concat(flags);
+  const bin = pick.via === 'npx'
+    ? (process.platform === 'win32' ? 'npx.cmd' : 'npx')
+    : (process.platform === 'win32' ? 'npm.cmd' : 'npm');
+
+  engineJobState.pkg = pick.pkg;
+  engineJobState.via = pick.via;
+  engineJobNote((mode === 'remove' ? 'Removing ' : 'Installing ') + pick.pkg +
+    (pick.via === 'npx' ? ' (warming the npx cache)' : '') + '…');
+
+  let child;
+  try {
+    /* .cmd cannot be executed without a shell on Windows, and a shell is only
+       reached for on this platform — everywhere else npm is a real executable
+       and does not get one. */
+    child = spawn(bin, args, { cwd: ROOT, windowsHide: true, shell: process.platform === 'win32' });
+  } catch (err) {
+    engineJobGiveUp('could not start npm: ' + String((err && err.message) || err));
+    return;
+  }
+  engineJobChild = child;
+  engineJobTimer = setTimeout(() => {
+    try {
+      if (process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      else child.kill('SIGKILL');
+    } catch (e) { /* already gone */ }
+    engineJobGiveUp('took longer than ' + Math.round(INSTALL_TIMEOUT_MS / 60000) + ' minutes and was stopped');
+  }, INSTALL_TIMEOUT_MS);
+
+  const pipe = (stream) => { if (stream) stream.on('data', c => String(c).split(/\r?\n/).forEach(engineJobNote)); };
+  pipe(child.stdout); pipe(child.stderr);
+
+  child.on('error', err => { engineJobChild = null; engineJobGiveUp(err && err.message ? err.message : String(err)); });
+  child.on('close', code => {
+    engineJobChild = null;
+    engineJobState.code = code;
+    if (code !== 0) {
+      logErr('engine install failed:', pick.pkg, 'code', code);
+      if (at + 1 < list.length) {
+        engineJobNote('— ' + pick.pkg + ' did not install; trying ' + list[at + 1].pkg);
+        engineJobAttempt(list, at + 1, mode, spec);
+        return;
+      }
+      engineJobGiveUp('npm could not install ' + list.map(x => x.pkg).join(' or ') + ' (exit ' + code + ')');
+      return;
+    }
+    engineJobStopTimer();
+    engineJobState.state = 'done';
+    engineJobState.endedAt = Date.now();
+    engineJobNote('✓ ' + (mode === 'remove' ? 'removed ' : 'installed ') + pick.pkg);
+    /* the answer the page will get is now out of date by definition */
+    automation.invalidate();
+  });
+}
+
+function engineJobStopTimer() {
+  if (engineJobTimer) { clearTimeout(engineJobTimer); engineJobTimer = null; }
+}
+
+function engineJobGiveUp(msg) {
+  engineJobStopTimer();
+  engineJobChild = null;
+  engineJobState.state = 'failed';
+  engineJobState.error = String(msg).slice(0, 300);
+  engineJobState.endedAt = Date.now();
+  engineJobNote('✗ ' + engineJobState.error);
+}
+
+/** start an install or a removal; answers the request, never waits for it */
+function engineJob(id, mode) {
+  if (engineJobChild) return { ok: false, error: 'an install is already running', job: engineJobView() };
+  const spec = engineSpec(id);
+  if (spec.error) return { ok: false, error: spec.error };
+  const e = spec.engine;
+
+  /* Remove targets the one package that is actually here, and there is only ever
+     one, so it has nothing to fall back to. Install skips whatever is already
+     installed and keeps the rest in the order the engine itself tries them. */
+  let list;
+  if (mode === 'remove') {
+    const have = spec.installs.find(i => i.via === 'npm' && i.pkg === e.installed);
+    if (!have) return { ok: false, error: e.name + ' is not installed here — nothing to remove' };
+    list = [have];
+  } else {
+    const todo = spec.installs.filter(i => !(i.via === 'npm' && i.pkg === e.installed));
+    list = todo.length ? todo : spec.installs;
+  }
+
+  /* npx candidates are not in node_modules and are not ours to remove, so there
+     is nothing to uninstall — only the cache to warm. */
+  if (mode === 'remove' && !list.some(i => i.via === 'npm')) {
+    return { ok: false, error: e.name + ' is fetched on demand by npx — there is nothing here to remove' };
+  }
+
+  engineJobState.state = 'running';
+  engineJobState.engine = e.id;
+  engineJobState.name = e.name;
+  engineJobState.pkg = '';
+  engineJobState.via = '';
+  engineJobState.log = [];
+  engineJobState.startedAt = Date.now();
+  engineJobState.endedAt = 0;
+  engineJobState.code = null;
+  engineJobState.error = '';
+
+  engineJobAttempt(list, 0, mode, spec);
+  /* a first attempt that never spawned still has to be seen as finished */
+  if (!engineJobChild && engineJobState.state === 'running') {
+    engineJobState.state = 'failed';
+    engineJobState.error = engineJobState.error || 'npm did not start';
+    engineJobState.endedAt = Date.now();
+  }
+  return { ok: engineJobState.state === 'running', error: engineJobState.error || undefined, job: engineJobView() };
 }
 
 function agentController(profile, emit) {
