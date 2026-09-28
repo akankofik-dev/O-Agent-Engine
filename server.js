@@ -57,8 +57,44 @@ const QUALITY = clamp(Number(process.env.QUALITY || 78), 20, 100);
 const MAX_FRAME_W = Number(process.env.MAX_W || 1600);
 const MAX_FRAME_H = Number(process.env.MAX_H || 1000);
 const IS_WINDOWS = process.platform === 'win32';
-const SHELL_FILE = IS_WINDOWS ? (process.env.COMSPEC || 'cmd.exe') : (process.env.SHELL || '/bin/bash');
+
+/* The shell, chosen for what it can actually run.
+ *
+ * On a POSIX host this is $SHELL and there is nothing to decide. On Windows the
+ * default was cmd.exe, and that is why a terminal here could not run other
+ * people's tools properly: cmd has no UTF-8 without a code page that has to be
+ * switched at exactly the right moment, its programs are a fixed handful, and
+ * none of the shell language is there — no pipes into utilities that take flags,
+ * no quoting that composes, and nothing that expects a real shell underneath.
+ *
+ * bash is preferred when it can be found, which on Windows means the copy Git
+ * for Windows ships, and it is a genuine POSIX shell: UTF-8 throughout, and the
+ * same utilities, syntax and behaviour as anywhere else bash runs, so a command
+ * that works here works in a container, on a server, and on Linux. Every
+ * language toolchain that expects a POSIX environment works because this is one.
+ *
+ * cmd.exe is still the fallback, and SHELL_FILE can be set to anything by hand.
+ * A missing bash is not a reason to have no terminal at all. */
+const BASH_CANDIDATES = IS_WINDOWS ? [
+  'C:\\Program Files\\Git\\bin\\bash.exe',
+  'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+  'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+  'C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe',
+  'C:\\Users\\Fix\\AppData\\Local\\Programs\\Git\\bin\\bash.exe',
+] : [];
+
+function findShell() {
+  if (process.env.SHELL_FILE) return process.env.SHELL_FILE;
+  for (const p of BASH_CANDIDATES) {
+    try { if (fs.existsSync(p)) return p; } catch { /* keep looking */ }
+  }
+  if (!IS_WINDOWS) return process.env.SHELL || '/bin/bash';
+  return process.env.COMSPEC || 'cmd.exe';
+}
+
+const SHELL_FILE = findShell();
 const SHELL_NAME = path.basename(SHELL_FILE);
+const SHELL_IS_BASH = /bash(\.exe)?$/i.test(SHELL_FILE);
 const HEADLESS = process.env.HEADLESS ? process.env.HEADLESS === '1' : process.platform !== 'win32'
   || (!IS_WINDOWS && process.platform !== 'darwin' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY);
 
@@ -2637,13 +2673,20 @@ function encodeOem(str) {
   }
   return out.subarray(0, n);
 }
-const codec = str => (CODE_PAGE === 65001 ? Buffer.from(str, 'utf8') : encodeOem(str));
+/* Input is encoded the way the shell reads it.
+ *
+ * bash is UTF-8 in every layer, and the cmd fallback is moved to 65001 by the
+ * chcp in start(), so both read UTF-8 — which is what makes a pasted line of
+ * code, an accented file name and an emoji all arrive as themselves. This is
+ * the one place corruption cannot be recovered from: the shell never receives
+ * the right bytes, so what is wrong here is wrong for good. */
+const codec = str => Buffer.from(str, 'utf8');
 
-/** modern tools (node, git) emit utf-8 while cmd itself speaks the OEM page,
- *  so prefer a strict utf-8 decode and fall back to the CP437 table. */
+/** Modern tools (node, git, python) emit utf-8, and the shell was started in a
+ *  UTF-8 locale, so a strict utf-8 decode is tried first; the OEM table stays as
+ *  the fallback for the rare thing that still writes in the machine's own page. */
 function decodeSmart(buf) {
   if (!buf.length) return '';
-  if (CODE_PAGE === 65001) return buf.toString('utf8');
   let ascii = true;
   for (let i = 0; i < buf.length; i++) if (buf[i] > 127) { ascii = false; break; }
   if (ascii) return buf.toString('latin1');
@@ -2710,15 +2753,73 @@ class ShellSession {
 
     let proc;
     try {
-      const args = IS_WINDOWS ? ['/Q', '/K', 'prompt \x01$P\x01$G'] : ['--noprofile', '--norc', '-i'];
-      const env = IS_WINDOWS ? process.env : {
-        ...process.env,
-        PS1: '',
-        PROMPT_COMMAND: 'printf "\\001%s\\001>" "$PWD"',
-      };
+      /* How the shell is started depends on which shell it is, and the two
+         cases are not variations on each other.
+         *
+         * bash gets a generated rcfile, because the prompt has to be shell code
+         * rather than a string: an environment variable is not parsed, so
+         * `$'\001'` set that way is printed as the characters themselves, dollar
+         * sign included. A rcfile is read as shell input, so the escape is a
+         * real escape.
+         *
+         * The prompt itself is printed by PROMPT_COMMAND and not by PS1, and
+         * that is not a style choice. PS1 is rendered by the line editor, and
+         * the editor does not hand back a control character that sits at the
+         * very front of a prompt: the opening marker of every prompt is eaten,
+         * and what arrives is a path followed by a closing marker and no
+         * opening one. That is not a prompt, it is output that looks like a
+         * prompt, and the panel cannot tell the two apart — so the working
+         * directory ends up in the transcript as text and the shell looks like
+         * it failed to start. PROMPT_COMMAND is a command, printf is a program
+         * writing to a pipe, and nothing sits between it and the bytes.
+         *
+         * PS1 is empty so bash adds no prompt of its own, which is the point of
+         * drawing the prompt here: the panel reads the sentinel, knows where the
+         * shell is, and shows it the way a terminal does.
+         *
+         * cmd.exe is only reached when there is no bash to find, and keeps the
+         * sentinel prompt it always had. */
+      let rcPath = null;
+      if (SHELL_IS_BASH) {
+        /* One file per session, not one per process. Two shell tabs shared a
+           path, so whichever started last overwrote the file the other was
+           still reading, and whichever was closed first deleted the file the
+           second one needed. A prompt that sometimes is and sometimes is not
+           the one we asked for is not a prompt. */
+        rcPath = path.join(os.tmpdir(),
+          'octop-shellrc-' + process.pid + '-' + (this.sessId || (this.sessId = crypto.randomBytes(6).toString('hex'))) + '.sh');
+        fs.writeFileSync(rcPath, [
+          '# generated by octop browser automation — the prompt, and nothing else',
+          'PS1=',
+          'PROMPT_COMMAND=\'printf "\\\\001%s\\\\001>" "$PWD"\'',
+          'export LANG="${LANG:-en_US.UTF-8}"',
+          'export LC_ALL="${LC_ALL:-$LANG}"',
+          'export TERM="${TERM:-xterm-256color}"',
+          'export PYTHONIOENCODING=utf-8',
+          'export PYTHONUTF8=1',
+        ].join('\n') + '\n');
+      }
+      const args = SHELL_IS_BASH
+        ? ['--rcfile', rcPath, '--noprofile', '-i']
+        : IS_WINDOWS
+          ? ['/Q', '/K', 'prompt \x01$P\x01$G']
+          : ['--noprofile', '--norc', '-i'];
+      const env = SHELL_IS_BASH
+        ? {
+          ...process.env,
+          LANG: process.env.LANG || 'en_US.UTF-8',
+          LC_ALL: process.env.LC_ALL || process.env.LANG || 'en_US.UTF-8',
+          TERM: process.env.TERM || 'xterm-256color',
+          PYTHONIOENCODING: 'utf-8',
+          PYTHONUTF8: '1',
+        }
+        : IS_WINDOWS
+          ? { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }
+          : { ...process.env, PS1: '', PROMPT_COMMAND: 'printf "\\001%s\\001>" "$PWD"' };
       proc = spawn(SHELL_FILE, args, {
         cwd, detached: !IS_WINDOWS, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env,
       });
+      this.rcPath = rcPath;
     } catch (e) {
       this.sendMsg({ type: 'fatal', error: String((e && e.message) || e) });
       return;
@@ -2727,6 +2828,16 @@ class ShellSession {
     this.alive = true;
     this.raw = Buffer.alloc(0);
     this.first = true;
+
+    /* cmd needs its console page switched after it is running, because it
+       executes its /K line before it has a console to change. bash is UTF-8 in
+       every layer already, so this is cmd's problem and not bash's. */
+    if (!SHELL_IS_BASH && IS_WINDOWS) {
+      setTimeout(() => {
+        try { if (this.proc && this.proc.stdin.writable) this.proc.stdin.write('chcp 65001 >nul\r\n'); }
+        catch { /* the shell died before this; its exit handler reports it */ }
+      }, 150);
+    }
 
     proc.on('error', e => {
       this.alive = false;
@@ -2742,12 +2853,37 @@ class ShellSession {
       this.sendMsg({ type: 'exited', code, signal: signal || null });
     });
 
-    this.sendMsg({ type: 'started', cwd, pid: proc.pid, shell: SHELL_NAME, cp: CODE_PAGE });
-    log(`shell started (pid ${proc.pid}, cwd ${cwd}, cp ${CODE_PAGE})`);
+    /* The panel needs three things it cannot work out on its own: where the
+       shell's home is, so the prompt can print ~ the way the shell prints it
+       instead of the path from the root; which mark the shell ends a prompt
+       with, which is "$" for a POSIX shell and ">" for cmd; and whether the
+       shell echoes its own input, which decides whether the panel has to write
+       the command into the transcript itself. bash is interactive and echoes;
+       cmd is fed through a pipe and does not, so the panel fills that gap. */
+    let home = null;
+    if (SHELL_IS_BASH) {
+      try {
+        home = decodeSmart(String(execFileSync(SHELL_FILE, ['-lc', 'printf %s "$HOME"'],
+          { encoding: 'buffer', windowsHide: true }))).trim() || null;
+      } catch { home = null; }
+    }
+    this.sendMsg({
+      type: 'started',
+      cwd,
+      pid: proc.pid,
+      shell: SHELL_NAME,
+      cp: 65001,
+      home,
+      promptMark: SHELL_IS_BASH ? '$' : '>',
+      echoesInput: !!SHELL_IS_BASH,
+    });
+    log('shell started (pid ' + proc.pid + ', cwd ' + cwd + ', ' + SHELL_NAME + (home ? ', home ' + home : '') + ')');
   }
 
   destroy() {
     if (this.drainTimer) { clearTimeout(this.drainTimer); this.drainTimer = null; }
+    // the generated rcfile is ours and nothing else will clean it up
+    if (this.rcPath) { try { fs.rmSync(this.rcPath, { force: true }); } catch { /* already gone */ } this.rcPath = null; }
     const proc = this.proc;
     this.alive = false;
     this.proc = null;
@@ -2776,7 +2912,10 @@ class ShellSession {
       return;
     }
     try {
-      const newline = IS_WINDOWS ? '\r\n' : '\n';
+      // cmd needs CRLF to consider a line finished; bash wants a plain LF and
+      // treats a CR as part of the command, which is how a file name ends up
+      // with a stray character on the end of it
+      const newline = (!SHELL_IS_BASH && IS_WINDOWS) ? '\r\n' : '\n';
       this.proc.stdin.write(Buffer.concat([codec(String(text ?? '')), Buffer.from(newline)]));
     } catch (e) {
       this.sendMsg({ type: 'error', message: 'could not write to the shell: ' + e.message });
@@ -2823,14 +2962,74 @@ class ShellSession {
   pushText(bytes) {
     if (!bytes.length) return;
     let text = decodeSmart(bytes);
-    if (this.first) { text = text.replace(/^\r?\n+/, ''); this.first = false; }
+    if (this.first) {
+      /* bash is started with an interactive stdin that is a pipe, and a pipe is
+         not a terminal, so on its first prompt it says it cannot set a process
+         group and has no job control. Both are true and neither matters here:
+         nothing needs job control, and every command runs either way. But they
+         are two lines of complaint at the top of a transcript meant to be a
+         record of what was typed.
+         *
+         * The `bash: ` is part of the line, not a decoration on it. Stripping
+         * only the message leaves the prefix behind, and the two of them stack
+         * into `bash: bash: …` — which is worse than the noise it was meant to
+         * remove, and looked exactly like bash failing to start. Only these two,
+         * only at the start, only for a shell that made them; a real error later
+         * is left alone, because that one is the point. */
+      if (SHELL_IS_BASH) {
+        text = text
+          .replace(/^bash: cannot set terminal process group[^\n]*\n?/gim, '')
+          .replace(/^bash: no job control in this shell[^\n]*\n?/gim, '');
+      }
+      text = text.replace(/^\r?\n+/, '');
+      this.first = false;
+    }
     if (!text) return;
     if (/\x1b\[2J|\x1b\[3J|\x0c/.test(text)) {
       text = text.replace(/\x1b\[[23]J|\x0c/g, '');
       this.emit({ c: 1 });
       if (!text) return;
     }
+    /* Run a carriage return or a backspace down before this goes anywhere.
+     *
+     * Both are how a program draws something that is really one line: a progress
+     * bar rewrites the same line over and over with \r, and a spinner steps back
+     * over itself with \b. Neither is text. Passed straight through, a two
+     * minute install becomes thousands of characters stacked on one line, and a
+     * spinner becomes a smear — the output is technically delivered and is
+     * unreadable, which is worse than a tool that refused to run at all. */
+    text = this.applyOverwrites(text);
+    if (!text) return;
     this.emit({ o: text });
+  }
+
+  /**
+   * Collapse \r and \b overwrites, line by line.
+   *
+   * \r takes the cursor to the start of the line, so anything after it replaces
+   * what was there; \b steps back one column, so it eats the character before
+   * it. The cursor is tracked per line, which is the only way this can be right:
+   * a \r resets the column without ending the line, so a program that writes
+   * "10%\r20%\r100%" has to come out as "100%" and not as three lines. A program
+   * that repaints the whole screen with \r is reduced to its final state, which is
+   * what someone watching it would have read off the screen anyway. */
+  applyOverwrites(text) {
+    if (!/[\r\b]/.test(text)) return text;
+    const out = [];
+    let line = '';
+    let col = 0;
+    const flush = () => { out.push(line); line = ''; col = 0; };
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '\n') { line += ch; flush(); continue; }
+      if (ch === '\r') { col = 0; continue; }
+      if (ch === '\b') { if (col > 0) col--; continue; }
+      while (line.length < col) line += ' ';   // a program that skipped forward
+      line = line.slice(0, col) + ch;
+      col++;
+    }
+    flush();
+    return out.join('');
   }
 
   flushIdle() {

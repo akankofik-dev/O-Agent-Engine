@@ -523,7 +523,7 @@ body.tab-chat .wb-card { border:none; border-radius:0; }
    It is the first entry of TERM_THEMES, so the fallback and the default are
    the same palette and the handover is invisible. */
 #p-terminal .xterm {
-  flex:1 1 auto; min-height:0; min-width:0;
+  flex:1 1 auto; min-height:0; min-width:0; position:relative;
   background:#181818; border:none; padding:0;
   display:flex; flex-direction:column; overflow:hidden;
 }
@@ -536,28 +536,34 @@ body.tab-chat .wb-card { border:none; border-radius:0; }
    search field under it rather than a terminal. */
 #p-terminal .xterm-scroll {
   flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden;
-  padding:10px 12px 8px;
+  padding:10px 12px 34px;
 }
 #p-terminal .xterm pre { margin:0; display:block;
   font-family:var(--fn-font-mono); font-size:13px; line-height:1.5; color:#cccccc;
   white-space:pre-wrap; word-break:break-word; }
 #p-terminal .tline { display:flex; align-items:baseline; gap:6px;
   font-family:var(--fn-font-mono); font-size:13px; line-height:1.5; }
-/* The prompt keeps the real path and gives up width instead of taking it. The
-   span is allowed to shrink below its content and clips at the front, because
-   the end of a path is the part that says where you are, so that is the part
-   that survives; `direction:rtl` with `unicode-bidi:plaintext` moves the
-   ellipsis to the left without reversing the characters.
+/* The prompt keeps the real path and gives up width instead of taking it, and
+   it gives it up from the left: the end of a path is the part that says where
+   you are, so that is the part that survives. How much is dropped is decided in
+   termSetPrompt, which walks the path and re-measures — because the only way to
+   know what fits is to see whether it fits.
+
+   This used to be done in CSS with `direction:rtl` and an ellipsis, which is
+   the usual way to truncate at the front and which does put the ellipsis on the
+   left. It also made a path render in the wrong order: a container set to RTL
+   reorders a leading `~` — the neutral character every POSIX prompt starts with
+   — so the home directory marker came out mangled. A path is read left to
+   right, and the layout is not the place to disagree with that.
 
    The input is what the line is for, so it is the one thing here that does not
    give way: flex-shrink 0 and a floor wide enough to type a word in. The
    prompt is the one that takes the loss, which is why it is the one that
-   ellipsises. An earlier version had this the wrong way round — the input could
+   shortens. An earlier version had this the wrong way round — the input could
    shrink to nothing and the prompt could not — so narrowing the window left a
    full path and nowhere to type. */
 #p-terminal .tline .tp { color:#cccccc; white-space:pre; font-weight:600;
-  flex:0 1 auto; min-width:3em; overflow:hidden; text-overflow:ellipsis;
-  direction:rtl; unicode-bidi:plaintext; }
+  flex:0 1 auto; min-width:3em; overflow:hidden; }
 #p-terminal .tline input { flex:1 1 0; min-width:9em; background:transparent;
   border:none; outline:none; color:#cccccc; font:inherit; caret-color:#cccccc;
   /* a block cursor, which is what a terminal has and a text box does not. A
@@ -733,8 +739,15 @@ select option { background:var(--fn-bg-elevated); color:var(--fn-text-primary); 
 .tline .tp { white-space:pre; font-weight:600; }
 .tline input { flex:1 1 0; background:transparent; border:none; outline:none;
   font:inherit; padding:0; }
-.xterm .tbadge { flex:none; margin-left:auto; font-size:10.5px; padding:1px 7px;
-  border-radius:999px; align-self:center; cursor:pointer; }
+/* The restart button is chrome, and a terminal's input line is not the place to
+   keep chrome. It sits in the corner of the surface, out of the stream, and the
+   surface keeps a little bottom padding so the last line of output is never
+   hidden underneath it. */
+.xterm .tbadge { position:absolute; right:10px; bottom:10px; z-index:2;
+  font-size:10.5px; padding:2px 9px; border-radius:999px; cursor:pointer;
+  background:rgba(0,0,0,.45); backdrop-filter:blur(3px);
+  border:1px solid rgba(204,204,204,.4); color:#8f8f8f; }
+.xterm .tbadge:hover { color:#cccccc; border-color:rgba(204,204,204,.7); }
 /* A panel block above sets .xterm border and padding to none; this is the
    fallback for a terminal that is not inside #p-terminal. */
 .xterm { border:1px solid var(--fn-border-primary); padding:4px; }
@@ -2179,6 +2192,13 @@ document.getElementById("navToggle").addEventListener("click", () => {
 });
 window.addEventListener("resize", () => {
   if (!isMobile()) document.body.classList.remove("collapsed");
+  /* The prompt drops path from the left until it fits, and "fits" is a
+     measurement rather than a rule — so a window that just got wider can show
+     more of the path again. Without this the prompt stays at whatever the
+     narrowest width it has seen could hold, which is not what any terminal
+     does when you drag it back. */
+  const t = TERM.active && TERM.tabs.get(TERM.active);
+  if (t) termSetPrompt(t);
 });
 
 /* ---------- the page context bar ----------
@@ -4432,48 +4452,199 @@ function importAgent() {
  *  Terminal — a live cmd.exe session per tab, over WS /api/shell
  * ===================================================================== */
 
-const TERM = { tabs: new Map(), active: null, seq: 0 };
+const TERM = { tabs: new Map(), active: null, seq: 0, home: null };
 const tPre = $("xtermPre");
 const tScroll = $("xtermScroll");
 const tPrompt = $("tPrompt");
 const tInput = $("tInput");
 const tBox = $("xtermBox");
 
+/* A terminal palette, declared before the functions that paint with it so there
+   is no window where a repaint could reach for it before it exists. Standard
+   16 colours, checked against this surface (#181818) rather than borrowed from
+   a page theme — a colour a program asked for has to stay legible here. */
+const ANSI_16 = [
+  '#000000', '#cd3131', '#0dbc79', '#e5e510', '#2472c8', '#bc3fbc', '#11a8cd', '#e5e5e5',
+  '#666666', '#f14c4c', '#23d18b', '#f5f543', '#3b8eea', '#d670d6', '#29b8db', '#ffffff',
+];
+const ANSI_FG_DEFAULT = '#cccccc';
+
+function ansiStyle(st) {
+  let css = 'color:' + (st.fg === null ? ANSI_FG_DEFAULT : st.fg);
+  if (st.bg) css += ';background-color:' + st.bg;
+  if (st.bold) css += ';font-weight:700';
+  if (st.dim) css += ';opacity:.62';
+  if (st.italic) css += ';font-style:italic';
+  if (st.underline) css += ';text-decoration:underline';
+  if (st.reverse) css += ';filter:invert(1)';
+  return css;
+}
+
+/**
+ * SGR state into a DocumentFragment, so one write can carry many colours.
+ *
+ * A terminal that displays escape bytes as text is not a terminal that runs
+ * other tools — it is the thing every one of them was written to avoid.
+ * `git diff --color`, `npm test`, `ls --color`, cargo, pytest and pip all
+ * colour their output through SGR codes, and a page that puts those codes on
+ * screen has turned a readable diff into a line of escape bytes.
+ *
+ * This is a small SGR renderer, not a full VT emulator: colours, bold, dim,
+ * italic, underline and reverse, and the cursor and screen codes are dropped
+ * rather than half-implemented. Unknown codes are removed rather than guessed
+ * at — a sequence this does not understand is neither shown literally nor
+ * applied as a guess. */
+function ansiToFragment(text) {
+  const frag = document.createDocumentFragment();
+  const st = { fg: null, bg: null, bold: false, dim: false, italic: false, underline: false, reverse: false };
+  // 256-colour and truecolour have no palette here; they are honoured as the
+  // default foreground rather than turned into a wrong colour
+  const RE = /\x1b\[([0-9;:]*)m|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]|\x1b\[[0-?]*[ -\/]*[@-~]|\x1b/g;
+  let last = 0, m;
+  const push = chunk => {
+    if (!chunk) return;
+    const span = document.createElement('span');
+    span.style.cssText = ansiStyle(st);
+    span.textContent = chunk;
+    frag.appendChild(span);
+  };
+  while ((m = RE.exec(text)) !== null) {
+    push(text.slice(last, m.index));
+    last = RE.lastIndex;
+    const seq = m[0];
+    if (!/\x1b\[/.test(seq)) continue;         // not an SGR: dropped on purpose
+    const body = seq.slice(2, -1);
+    if (!/^[0-9;:]*$/.test(body)) continue;    // parameters we do not model
+    const parts = body.split(/[;:]/).filter(p => p !== '').map(Number);
+    const reset = () => Object.assign(st, { fg: null, bg: null, bold: false, dim: false, italic: false, underline: false, reverse: false });
+    if (!parts.length) { reset(); continue; }
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i];
+      if (p === 0) reset();
+      else if (p === 1) st.bold = true;
+      else if (p === 2) st.dim = true;
+      else if (p === 3) st.italic = true;
+      else if (p === 4) st.underline = true;
+      else if (p === 7) st.reverse = true;
+      else if (p === 22) { st.bold = false; st.dim = false; }
+      else if (p === 23) st.italic = false;
+      else if (p === 24) st.underline = false;
+      else if (p === 27) st.reverse = false;
+      else if (p >= 30 && p <= 37) st.fg = ANSI_16[p - 30];
+      else if (p === 39) st.fg = null;
+      else if (p >= 40 && p <= 47) st.bg = ANSI_16[p - 40];
+      else if (p === 49) st.bg = null;
+      else if (p >= 90 && p <= 97) st.fg = ANSI_16[p - 90 + 8];
+      else if (p >= 100 && p <= 107) st.bg = ANSI_16[p - 100 + 8];
+      // 38/48 (256 / truecolor) are consumed here so their arguments are not
+      // then mistaken for further attributes
+      else if (p === 38 || p === 48) {
+        const mode = parts[i + 1];
+        if (mode === 5) i += 2;
+        else if (mode === 2) i += 4;
+      }
+    }
+  }
+  push(text.slice(last));
+  return frag;
+}
+
+/* What the shell told us about itself when it started, and the panel cannot
+   infer any of it: which mark ends a prompt, and whether the shell echoes its
+   own input. bash is interactive and echoes, so writing the command into the
+   transcript as well would show it twice; cmd is fed through a pipe and does
+   not, so the panel has to write it or the history is not a record. Both are
+   stated by the server rather than sniffed here, because which shell is running
+   is not something the page should be guessing at. */
+let termPromptMark = ">";
+let termEchoesItsOwn = false;
+
 /* The scroll surface is the wrapper, not the <pre>: the input line is inside it
    now, so following the output means keeping the whole document in view — which
    is what puts the caret under the last line the shell printed. */
 function termScroll() { if (tScroll) tScroll.scrollTop = tScroll.scrollHeight; }
-function termPaint(tab) { if (tPre) tPre.textContent = tab.buf; termScroll(); }
+function termPaint(tab) { if (tPre) { tPre.textContent = ''; tPre.appendChild(ansiToFragment(tab.buf)); } termScroll(); }
 
 /**
- * The prompt, shown the way cmd shows it.
+ * The prompt, in the form the shell itself would print it.
  *
- * The whole working directory, every time, with the real shell's own trailing
- * mark. No shortening, no ~ in place of a home directory, no project shorthand:
- * those are the decorations a themed terminal adds, and this is the plain one.
- * cmd prints the full path and so does this.
+ * A POSIX shell does not show the path from the root — it shows ~ for the home
+ * directory, and every other terminal and every screenshot of one does the same.
+ * So when the shell is bash this does that, and it is also the only way a deep
+ * directory leaves any room to type. The full path is still the tooltip and the
+ * tab title, so nothing is hidden, and the path shown is always the real one:
+ * the only transformation is the home directory, and only when the path is
+ * genuinely under it.
  *
- * What is not left to chance is the input. The prompt is laid out so that a
- * long path gives up width instead of taking it — the span shrinks and
- * ellipsises at the front, the input keeps whatever is left, and the full path
- * stays in the tooltip and the tab title. So the prompt is always the real
- * path, and there is always somewhere to type, which is the whole point of the
- * line and was not true when the prompt was allowed to take it all.
- */
+ * The layout does the rest. The prompt gives up width rather than taking it — it
+ * shrinks and ellipsises at the front, because the end of a path is the part
+ * that says where you are — while the input never does, so there is always
+ * somewhere to type. */
 function termShortPath(cwd) {
-  return cwd ? String(cwd) : "";
+  if (!cwd) return "";
+  const p = String(cwd);
+  const home = TERM.home;
+  if (!home || home === "/") return p;
+  if (p.toLowerCase() === home.toLowerCase()) return "~";
+  if (p.toLowerCase().startsWith(home.toLowerCase() + "/")) return "~" + p.slice(home.length);
+  return p;
+}
+
+/**
+ * The prompt, in the form the shell itself would print it.
+ *
+ * A POSIX shell does not show the path from the root — it shows ~ for the home
+ * directory, and every other terminal and every screenshot of one does the same.
+ * So when the shell is bash this does that, and it is also the only way a deep
+ * directory leaves any room to type. The full path is still the tooltip and the
+ * tab title, so nothing is hidden, and the path shown is always the real one:
+ * the only transformation is the home directory, and only when the path is
+ * genuinely under it.
+ *
+ * What will not fit is dropped from the left, which is decided here rather than
+ * in CSS: the only way to know how much of a path fits is to set it and see, and
+ * a path is read left to right, so it is also the only way to keep the leading
+ * `~` where it belongs. The input is what never gives way, so there is always
+ * somewhere to type. */
+function termShortPath(cwd) {
+  if (!cwd) return "";
+  const p = String(cwd);
+  const home = TERM.home;
+  if (home && home !== "/") {
+    if (p.toLowerCase() === home.toLowerCase()) return "~";
+    if (p.toLowerCase().startsWith(home.toLowerCase() + "/")) return "~" + p.slice(home.length);
+  }
+  return p;
+}
+
+/** The prompt, dropped from the left until it fits the width it was given. */
+function termFitPrompt(text) {
+  if (!tPrompt || !text) return text;
+  tPrompt.textContent = text;
+  if (tPrompt.scrollWidth <= tPrompt.clientWidth) return text;
+  // one whole segment at a time, so what is left is a real path with a real
+  // ellipsis in front of it rather than a cut in the middle of a name
+  const parts = text.split("/");
+  while (parts.length > 1) {
+    parts.shift();
+    tPrompt.textContent = "\u2026/" + parts.join("/");
+    if (tPrompt.scrollWidth <= tPrompt.clientWidth) break;
+  }
+  return tPrompt.textContent;
 }
 
 function termSetPrompt(tab) {
   if (!tPrompt) return;
   const full = tab.cwd || "";
-  tPrompt.textContent = full ? termShortPath(full) + ">" : "";
+  termFitPrompt(full ? termShortPath(full) + termPromptMark : "");
   tPrompt.title = full;   // the whole thing, on hover
 }
 function termWrite(tab, text) {
+  // the buffer keeps the codes: a repaint has to be able to rebuild from it,
+  // and stripping them there would make the stored transcript lossy
   tab.buf += text;
   if (TERM.active !== tab.id || !tPre) return;
-  tPre.appendChild(document.createTextNode(text));
+  tPre.appendChild(ansiToFragment(text));
   termScroll();
 }
 function termSend(tab, obj) {
@@ -4504,6 +4675,14 @@ function termConnect(tab) {
       tab.alive = true;
       tab.shell = m.shell || "cmd.exe";
       tab.cwd = m.cwd || "";
+      /* What the shell is decides three things the panel cannot work out on its
+         own: where home is, so the prompt can print ~ the way the shell prints
+         it instead of the path from the root; the mark that ends a prompt; and
+         whether the shell echoes its own input — which is the reason one shell
+         showed every command twice and the other showed it once. */
+      TERM.home = m.home || null;
+      termPromptMark = m.promptMark || ">";
+      termEchoesItsOwn = m.echoesInput === true;
       termWrite(tab, "\n");
       termPromptNow(tab);
     } else if (m.type === "stream") {
@@ -4622,7 +4801,18 @@ function termWire() {
     if (e.key === "Enter") {
       e.preventDefault();
       const cmd = tInput.value;
-      termWrite(tab, (tab.cwd ? tab.cwd + ">" : "") + cmd + "\n");
+      /* The echo of what was typed is not always written here.
+       *
+       * cmd.exe is fed through a pipe with no line editor, so it never prints
+       * the command back and something had to — that is why this used to write
+       * it. bash is started with a real interactive stdin, which *is* a line
+       * editor, and it echoes on its own; writing it as well showed every
+       * command twice, which is the most obvious thing wrong with a terminal
+       * that is meant to look like the real one. So it is written only for the
+       * shell that leaves the gap, and it carries the prompt as displayed —
+       * otherwise the transcript shows one command under a different prompt
+       * than every other and the history stops being a record of what was run. */
+      if (!termEchoesItsOwn) termWrite(tab, (tPrompt ? tPrompt.textContent : "") + cmd + "\n");
       if (cmd.trim()) { tab.hist.unshift(cmd.trim()); tab.hp = 0; }
       tInput.value = "";
       termSend(tab, { type: "cmd", text: cmd });
