@@ -482,11 +482,6 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
   border:1px solid transparent; border-radius:var(--fn-radius-sm);
   background:transparent; color:var(--fn-text-tertiary); cursor:pointer; padding:0; }
 .chat-head-btn:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
-/* An author `display` beats the user agent's `[hidden] { display:none }`, so
-   without this a button in this bar could not be hidden at all. Every button
-   in the bar is display:grid for the sake of centring a glyph, which is
-   exactly what makes this easy to get wrong. */
-.chat-head-btn[hidden] { display:none; }
 .chat-head-btn.oc-side-toggle { font-size:calc(13px * var(--fn-dens)); line-height:1; }
 .chat-head-btn.oc-side-toggle[aria-expanded="true"] { color:var(--fn-text-primary); }
 /* The tabs are the bar's contents now, so they carry none of a bar's own
@@ -554,15 +549,14 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
 /* The list is a container for the same reason the chat is: the toggle lives in
  * here when the list is open, and a 220px panel should hold a 22px button, not
  * the 26px the chat next to it wants. */
-/* The session list as a column of the chat layout.
+/* The session list as the inside of a window.
  *
- * It is a container as well as a column, so the button in its heading is sized
- * from the list width and not from the page — the list is narrower than the
- * chat it sits beside. */
+ * It brings no chrome of its own: the window has a border, a background, a
+ * shadow and a title bar, and a panel that brings its own reads as a box
+ * inside a window rather than as the window. It is a container so the button in
+ * its heading is sized from the window width, not from the page. */
 .oc-side { flex:1; min-width:0; display:flex; flex-direction:column;
-  container-type:inline-size;
-  border-left:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary); }
-.oc-side[hidden] { display:none; }
+  container-type:inline-size; background:transparent; }
 /* The heading is the button plus air, same as the panel header above, because
  * the button is in here now and a fixed-height strip would either clip it or
  * leave it floating. */
@@ -592,25 +586,10 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * decision as everything else, sized for what it holds. */
 body.tab-chat .wb { padding:8px; overflow:hidden; }
 body.tab-chat .wb-card { padding:0; }
-/* The list takes a column when there is room for one, and gets out of the way
-   when there is not.
- *
- * 220px, not 264px. A list of session names does not need a third of a panel:
-   the longest name anyone types is a sentence, and it ellipsises long before
-   220px is full, so the extra 44px was showing nothing at all — while being
-   17% of the conversation.
- *
-   Below 900px it stops taking a column and floats over the right-hand edge
-   instead. Taking 220px out of a 700px panel is not a sidebar, it is a third
-   of the conversation gone, and a list you consult while you read is the one
-   panel that should never cost you the thing you are reading. */
-#p-chat .chathome.has-sidebar { display:grid; grid-template-columns:minmax(0,1fr) 220px; }
-@media (max-width:900px) {
-  #p-chat .chathome.has-sidebar { grid-template-columns:minmax(0,1fr); }
-  #p-chat .chathome { position:relative; }
-  #p-chat .oc-side { position:absolute; top:0; right:0; bottom:0; z-index:3;
-    width:min(220px,72vw); box-shadow:-10px 0 24px rgba(0,0,0,.22); }
-}
+/* The chat panel is the stage the session window is dragged around inside: it
+   has to be positioned for a window to have anything to be positioned against.
+   */
+#p-chat { position:relative; }
 @media (max-width:900px) {
   .chat-head-btn.oc-side-toggle[aria-expanded="true"] { background:var(--fn-bg-hover); }
 }
@@ -1310,19 +1289,8 @@ body.tab-chat .wb-head { display:none; }
 .status-dot.work { background:var(--fn-color-brand); }
 .status-dot.err { background:var(--fn-color-danger); }
 .status-text { color:var(--fn-text-tertiary); }
-/* Sticky rather than absolute, and last in the log rather than first.
-   
-   Absolute would put it wherever the nearest positioned ancestor happened to
-   be — the window in the floating chat, which is 91px below the log and lands
-   on the status line. Sticky holds it to the foot of the visible log while the
-   log scrolls, which is the only edge this button cares about, and it comes for
-   free from the element being the last thing in the flow: its natural place is
-   after the last message, and sticky lifts it up whenever you have scrolled
-   away from that. */
-.latest-btn { position:sticky; bottom:10px; z-index:2;
-  display:block; width:fit-content; margin:0 14px 0 auto; padding:5px 8px;
-  border:1px solid var(--fn-border-input-alt);
-  background:var(--fn-bg-primary); color:var(--fn-text-secondary); border-radius:calc(5px * var(--fn-radius-scale));
+.latest-btn { position:absolute; right:14px; bottom:10px; z-index:2; border:1px solid var(--fn-border-input-alt);
+  background:var(--fn-bg-primary); color:var(--fn-text-secondary); border-radius:calc(5px * var(--fn-radius-scale)); padding:5px 8px;
   cursor:pointer; font:11px var(--fn-font-ui); }
 .latest-btn:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
 
@@ -1542,26 +1510,32 @@ dialog.docdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 1
    load-bearing: without it there is no way to tell it is above the panel. It
    stays a single soft shadow, and the border does the rest of the work. */
 .floatwin {
-  /* One size: the stage. The window is not a box that was handed the stage's
-     measurements, it is the stage with a title bar on it — so there is nothing
-     to recompute when the workspace changes, and nothing that can fall out of
-     step with it. */
-  position:absolute; inset:0;
-  display:flex; flex-direction:column; min-width:0; min-height:0;
-  background:var(--fn-bg-primary); overflow:hidden; outline:none;
-  /* The stage's own width drives the layout inside the window — not the
-     viewport's. A narrow workspace has to lay out like a narrow thing, and a
-     media query cannot see how wide the stage is. */
+  position:absolute; display:flex; flex-direction:column; min-width:0; min-height:0;
+  background:var(--fn-bg-primary); border:1px solid var(--fn-border-primary);
+  border-radius:calc(8px * var(--fn-radius-scale));
+  box-shadow:0 8px 28px -12px rgba(0,0,0,.5);
+  overflow:hidden; outline:none;
+  /* The window's own width drives the layout inside it — not the viewport.
+     A 300px window on a 1600px screen still has to lay out like a 300px thing. */
   container-type:inline-size; container-name:fw;
+  transition:border-color var(--fn-transition);
 }
 .floatwin[hidden] { display:none; }
+.floatwin.fw-focus { border-color:var(--fn-border-focus); }
+.floatwin.fw-drag { border-color:var(--fn-border-focus); }
+.floatwin.fw-max { border-radius:0; }
+.floatwin.fw-min { min-height:0; }
 
 /* ------------------------------ header ------------------------------ */
 
 .fw-head { flex:none; display:flex; align-items:center; gap:8px; padding:7px 7px 7px 12px;
   background:var(--fn-bg-secondary); border-bottom:1px solid var(--fn-border-primary);
-  user-select:none; }
+  cursor:grab; user-select:none; touch-action:none; }
+.floatwin.fw-min .fw-head { border-bottom:none; border-radius:inherit; }
+.floatwin.fw-max .fw-head { border-radius:0; }
+.fw-head:active { cursor:grabbing; }
 .fw-dot { width:7px; height:7px; border-radius:50%; background:var(--fn-color-brand); flex:none; }
+.floatwin.fw-busy .fw-dot { animation:micpulse 1.15s ease-in-out infinite; }
 .fw-title { font-size:12.5px; font-weight:600; color:var(--fn-text-primary); flex:none; }
 .fw-sub { font-size:11px; color:var(--fn-text-tertiary); overflow:hidden;
   text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1 1 auto; }
@@ -1576,6 +1550,64 @@ dialog.docdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 1
 /* ------------------------------- body ------------------------------- */
 
 .fw-body { flex:1; min-height:0; min-width:0; display:flex; }
+.floatwin.fw-min .fw-body { display:none; }
+.floatwin.fw-min .fw-sub { display:none; }
+
+/* A minimized window is just its title bar. The height comes from the header
+   itself, so there is never a strip of dead space under it. */
+.floatwin.fw-min .fw-head { height:var(--fw-head-h,36px); }
+
+/* --------------------------- resize handles --------------------------- */
+
+/* All eight, not three. A window parked against the right edge could not be
+   widened before, because the only handle that changes width was on the right. */
+.fw-rz { position:absolute; touch-action:none; z-index:3; }
+.fw-rz[data-dir="n"]  { top:-3px; left:12px; right:12px; height:8px; cursor:ns-resize; }
+.fw-rz[data-dir="s"]  { bottom:-3px; left:12px; right:12px; height:8px; cursor:ns-resize; }
+.fw-rz[data-dir="w"]  { left:-3px; top:12px; bottom:12px; width:8px; cursor:ew-resize; }
+.fw-rz[data-dir="e"]  { right:-3px; top:12px; bottom:12px; width:8px; cursor:ew-resize; }
+.fw-rz[data-dir="nw"] { left:-2px; top:-2px; width:15px; height:15px; cursor:nwse-resize; }
+.fw-rz[data-dir="ne"] { right:-2px; top:-2px; width:15px; height:15px; cursor:nesw-resize; }
+.fw-rz[data-dir="sw"] { left:-2px; bottom:-2px; width:15px; height:15px; cursor:nesw-resize; }
+.fw-rz[data-dir="se"] { right:-2px; bottom:-2px; width:15px; height:15px; cursor:nwse-resize; }
+.floatwin.fw-max .fw-rz, .floatwin.fw-min .fw-rz { display:none; }
+
+/* The handles are invisible until you go looking for them, then they say so. */
+.fw-rz[data-dir="se"]::after, .fw-rz[data-dir="sw"]::after,
+.fw-rz[data-dir="ne"]::after, .fw-rz[data-dir="nw"]::after {
+  content:""; position:absolute; width:9px; height:9px; opacity:0;
+  border-right:2px solid var(--fn-text-quaternary); border-bottom:2px solid var(--fn-text-quaternary);
+  transition:opacity var(--fn-transition);
+}
+.fw-rz[data-dir="se"]::after { right:3px; bottom:3px; }
+.fw-rz[data-dir="sw"]::after { left:3px; bottom:3px; transform:scaleX(-1); }
+.fw-rz[data-dir="ne"]::after { right:3px; top:3px; transform:scaleY(-1); }
+.fw-rz[data-dir="nw"]::after { left:3px; top:3px; transform:scale(-1); }
+.floatwin:hover .fw-rz::after { opacity:1; }
+.floatwin.fw-max:hover .fw-rz::after, .floatwin.fw-min:hover .fw-rz::after { opacity:0; }
+
+/* An alignment guide, so snapping is visible and not just a jump. */
+.fw-guide { position:absolute; z-index:2; pointer-events:none; background:var(--fn-color-brand);
+  opacity:.55; border-radius:2px; }
+.fw-guide.v { width:1px; top:0; bottom:0; }
+.fw-guide.h { height:1px; left:0; right:0; }
+.floatwin.fw-max .fw-guide, .floatwin.fw-min .fw-guide { display:none; }
+
+/* --------------------------- the size menu --------------------------- */
+
+.fw-menu { position:absolute; z-index:4; min-width:172px; padding:4px;
+  background:var(--fn-bg-elevated); border:1px solid var(--fn-border-primary);
+  border-radius:calc(6px * var(--fn-radius-scale));
+  box-shadow:0 8px 28px -12px rgba(0,0,0,.5); }
+.fw-menu[hidden] { display:none; }
+.fw-menu button { display:flex; align-items:center; gap:8px; width:100%; padding:6px 9px;
+  border:none; background:transparent; color:var(--fn-text-primary); font-size:12.5px;
+  text-align:left; cursor:pointer; border-radius:var(--fn-radius-sm); }
+.fw-menu button:hover { background:var(--fn-bg-hover); }
+.fw-menu button:focus-visible { outline:2px solid var(--fn-color-brand); outline-offset:-2px; }
+.fw-menu .fm-key { margin-left:auto; font-size:10.5px; color:var(--fn-text-tertiary);
+  font-family:var(--fn-font-mono); }
+.fw-menu hr { border:none; border-top:1px solid var(--fn-border-secondary); margin:4px 2px; }
 
 /* ----------------------- layout inside the window ---------------------- */
 
@@ -1901,11 +1933,12 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                 <div class="chat-session-tabs" id="chatSessionTabs" role="tablist" aria-label="Open chat sessions"><button class="chat-new-tab" id="chatNew" type="button" title="New session" aria-label="New session"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
                 <span class="grow"></span>
                 <button class="chat-head-btn oc-side-toggle" id="ocSideToggle" type="button" title="Hide the session list" aria-label="Hide the session list" aria-expanded="true" aria-controls="ocSide">▤</button>
+                <button class="chat-head-btn chat-close" id="chatCloseFloat" type="button" title="Close floating chat" aria-label="Close floating chat" hidden><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
               </header>
               <div class="chatlog" id="chatLog" role="log" aria-live="polite" aria-label="Octop conversation">
                 <div class="chatempty" id="chatEmpty"><span class="oc-empty-title">O Browser is ready.</span> <span class="oc-empty-desc">Ask O Browser to browse, inspect, or explain.</span><div class="empty-prompts"><button type="button" data-prompt="Open the browser and inspect the current page">Inspect the current page</button><button type="button" data-prompt="Summarize what is open in the browser">Summarize the browser</button><button type="button" data-prompt="Help me automate a browser task">Plan an automation</button></div></div>
-                <div class="chatinner" id="chatLogInner"></div>
                 <button class="latest-btn" id="chatLatest" type="button" hidden>Latest messages</button>
+                <div class="chatinner" id="chatLogInner"></div>
               </div>
               <div class="chat-mark"><svg viewBox="0 0 49 7" width="392" height="56" role="img" aria-label="O Browser" class="ob-mark"><g class="ob-mark-dim"><rect x="1" y="0" width="1" height="1"/><rect x="2" y="0" width="1" height="1"/><rect x="3" y="0" width="1" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="0" y="5" width="1" height="1"/><rect x="4" y="5" width="1" height="1"/><rect x="1" y="6" width="1" height="1"/><rect x="2" y="6" width="1" height="1"/><rect x="3" y="6" width="1" height="1"/></g><g class="ob-mark-strong"><rect x="8" y="0" width="1" height="1"/><rect x="9" y="0" width="1" height="1"/><rect x="10" y="0" width="1" height="1"/><rect x="11" y="0" width="1" height="1"/><rect x="8" y="1" width="1" height="1"/><rect x="12" y="1" width="1" height="1"/><rect x="8" y="2" width="1" height="1"/><rect x="12" y="2" width="1" height="1"/><rect x="8" y="3" width="1" height="1"/><rect x="9" y="3" width="1" height="1"/><rect x="10" y="3" width="1" height="1"/><rect x="11" y="3" width="1" height="1"/><rect x="8" y="4" width="1" height="1"/><rect x="12" y="4" width="1" height="1"/><rect x="8" y="5" width="1" height="1"/><rect x="12" y="5" width="1" height="1"/><rect x="8" y="6" width="1" height="1"/><rect x="9" y="6" width="1" height="1"/><rect x="10" y="6" width="1" height="1"/><rect x="11" y="6" width="1" height="1"/><rect x="14" y="0" width="1" height="1"/><rect x="15" y="0" width="1" height="1"/><rect x="16" y="0" width="1" height="1"/><rect x="17" y="0" width="1" height="1"/><rect x="14" y="1" width="1" height="1"/><rect x="18" y="1" width="1" height="1"/><rect x="14" y="2" width="1" height="1"/><rect x="18" y="2" width="1" height="1"/><rect x="14" y="3" width="1" height="1"/><rect x="15" y="3" width="1" height="1"/><rect x="16" y="3" width="1" height="1"/><rect x="17" y="3" width="1" height="1"/><rect x="14" y="4" width="1" height="1"/><rect x="16" y="4" width="1" height="1"/><rect x="14" y="5" width="1" height="1"/><rect x="17" y="5" width="1" height="1"/><rect x="14" y="6" width="1" height="1"/><rect x="18" y="6" width="1" height="1"/><rect x="21" y="0" width="1" height="1"/><rect x="22" y="0" width="1" height="1"/><rect x="23" y="0" width="1" height="1"/><rect x="20" y="1" width="1" height="1"/><rect x="24" y="1" width="1" height="1"/><rect x="20" y="2" width="1" height="1"/><rect x="24" y="2" width="1" height="1"/><rect x="20" y="3" width="1" height="1"/><rect x="24" y="3" width="1" height="1"/><rect x="20" y="4" width="1" height="1"/><rect x="24" y="4" width="1" height="1"/><rect x="20" y="5" width="1" height="1"/><rect x="24" y="5" width="1" height="1"/><rect x="21" y="6" width="1" height="1"/><rect x="22" y="6" width="1" height="1"/><rect x="23" y="6" width="1" height="1"/><rect x="26" y="0" width="1" height="1"/><rect x="30" y="0" width="1" height="1"/><rect x="26" y="1" width="1" height="1"/><rect x="30" y="1" width="1" height="1"/><rect x="26" y="2" width="1" height="1"/><rect x="30" y="2" width="1" height="1"/><rect x="26" y="3" width="1" height="1"/><rect x="30" y="3" width="1" height="1"/><rect x="26" y="4" width="1" height="1"/><rect x="30" y="4" width="1" height="1"/><rect x="26" y="5" width="1" height="1"/><rect x="28" y="5" width="1" height="1"/><rect x="30" y="5" width="1" height="1"/><rect x="27" y="6" width="1" height="1"/><rect x="28" y="6" width="1" height="1"/><rect x="29" y="6" width="1" height="1"/><rect x="33" y="0" width="1" height="1"/><rect x="34" y="0" width="1" height="1"/><rect x="35" y="0" width="1" height="1"/><rect x="36" y="0" width="1" height="1"/><rect x="32" y="1" width="1" height="1"/><rect x="32" y="2" width="1" height="1"/><rect x="33" y="3" width="1" height="1"/><rect x="34" y="3" width="1" height="1"/><rect x="35" y="3" width="1" height="1"/><rect x="36" y="4" width="1" height="1"/><rect x="36" y="5" width="1" height="1"/><rect x="32" y="6" width="1" height="1"/><rect x="33" y="6" width="1" height="1"/><rect x="34" y="6" width="1" height="1"/><rect x="35" y="6" width="1" height="1"/><rect x="38" y="0" width="1" height="1"/><rect x="39" y="0" width="1" height="1"/><rect x="40" y="0" width="1" height="1"/><rect x="41" y="0" width="1" height="1"/><rect x="42" y="0" width="1" height="1"/><rect x="38" y="1" width="1" height="1"/><rect x="38" y="2" width="1" height="1"/><rect x="38" y="3" width="1" height="1"/><rect x="39" y="3" width="1" height="1"/><rect x="40" y="3" width="1" height="1"/><rect x="41" y="3" width="1" height="1"/><rect x="38" y="4" width="1" height="1"/><rect x="38" y="5" width="1" height="1"/><rect x="38" y="6" width="1" height="1"/><rect x="39" y="6" width="1" height="1"/><rect x="40" y="6" width="1" height="1"/><rect x="41" y="6" width="1" height="1"/><rect x="42" y="6" width="1" height="1"/><rect x="44" y="0" width="1" height="1"/><rect x="45" y="0" width="1" height="1"/><rect x="46" y="0" width="1" height="1"/><rect x="47" y="0" width="1" height="1"/><rect x="44" y="1" width="1" height="1"/><rect x="48" y="1" width="1" height="1"/><rect x="44" y="2" width="1" height="1"/><rect x="48" y="2" width="1" height="1"/><rect x="44" y="3" width="1" height="1"/><rect x="45" y="3" width="1" height="1"/><rect x="46" y="3" width="1" height="1"/><rect x="47" y="3" width="1" height="1"/><rect x="44" y="4" width="1" height="1"/><rect x="46" y="4" width="1" height="1"/><rect x="44" y="5" width="1" height="1"/><rect x="47" y="5" width="1" height="1"/><rect x="44" y="6" width="1" height="1"/><rect x="48" y="6" width="1" height="1"/></g><g class="ob-mark-count"><rect x="1" y="1" width="1" height="1"/><rect x="2" y="1" width="1" height="1"/><rect x="3" y="1" width="1" height="1"/><rect x="9" y="1" width="1" height="1"/><rect x="10" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/><rect x="9" y="4" width="1" height="1"/><rect x="10" y="4" width="1" height="1"/><rect x="11" y="4" width="1" height="1"/><rect x="15" y="1" width="1" height="1"/><rect x="16" y="1" width="1" height="1"/><rect x="17" y="1" width="1" height="1"/><rect x="21" y="1" width="1" height="1"/><rect x="22" y="1" width="1" height="1"/><rect x="23" y="1" width="1" height="1"/><rect x="45" y="1" width="1" height="1"/><rect x="46" y="1" width="1" height="1"/><rect x="47" y="1" width="1" height="1"/></g></svg></div>
               <div class="chatfoot">
@@ -3505,7 +3538,9 @@ function wireChat() {
   // the control now, so there is nothing to wire here
   const title = $("chatSessionTitle");
   if (title) title.addEventListener("click", () => sesRenameActive());
-
+  if ($("chatCloseFloat")) $("chatCloseFloat").addEventListener("click", () => {
+    if (CHAT.host && CHAT.host !== "page") closeFloat(CHAT.host);
+  });
   if ($("chatModelChip")) $("chatModelChip").addEventListener("click", openChangeModel);
   if (chatInput) {
     chatHistoryLoad();
@@ -3556,7 +3591,7 @@ function wireChat() {
   }
   paintAttachments();
   paintChatMeta();
-
+  if ($("chatCloseFloat")) $("chatCloseFloat").hidden = CHAT.host === "page" || !CHAT.host;
   wireAddAi();
   wireActivity();
   wireAutomation();
@@ -5206,29 +5241,160 @@ function aiRequestFailed(e) {
   return "Couldn't reach that service. Check the address and your connection, then try again.";
 }
 
-/* The chat over Browser and Terminal.
- *
- * One window, one size: the window is the stage. See the note above for what
- * that replaced and why. */
+const FLOAT_KEY = "octop:float-chat";
 const FLOAT_HOSTS = ["browser", "terminal"];
 
 const FLOAT = {
-  zTop: 60,            // starts above .hud and the workspace chrome
-  windows: new Map(),  // host -> window record
+  zTop: 60,                       // starts above .hud and the workspace chrome
+  windows: new Map(),             // host -> window record
+  SNAP: 8,                        // how close an edge has to be to snap, px
 };
 
-/* The box the window fills. Browser and Terminal each have a .stage to sit in,
-   and .floatwin is inset:0 inside it, so nothing here has to measure anything. */
-const floatStage = host => document.querySelector("#p-" + host + " .stage");
+/* ------------------------- geometry, persisted ------------------------- */
 
-/* --------------------------- the window --------------------------------- */
+/* Only pixel geometry is stored. No endpoint, no key, no credential. */
+function floatSaved() {
+  try { return JSON.parse(localStorage.getItem(FLOAT_KEY) || "{}") || {}; } catch { return {}; }
+}
+function floatSave(host, box, flags) {
+  try {
+    const all = floatSaved();
+    all[host] = Object.assign({}, box, flags);
+    localStorage.setItem(FLOAT_KEY, JSON.stringify(all));
+  } catch { /* private mode, or the quota is full */ }
+}
+function floatForget(host) {
+  try {
+    const all = floatSaved();
+    delete all[host];
+    localStorage.setItem(FLOAT_KEY, JSON.stringify(all));
+  } catch { /* nothing to do */ }
+}
+
+/* The box a window is positioned and sized against.
+ *
+ * Browser and Terminal each have a .stage to float over. The session list has
+ * no panel of its own to float over — it floats over the chat, which is where
+ * it was and where it still belongs — and it cannot be found by the usual rule,
+ * because the host name "sessions" is also the name of a tab, so #p-sessions is
+ * the Sessions panel, which is hidden whenever anybody is looking at the chat and
+ * measures 0x0. A window sized against that comes out one pixel wide.
+ *
+ * So the stage is named explicitly for that one host, and falls back to the
+ * panel for the rest. */
+const FLOAT_OVER = { sessions: "chat" };
+const floatStage = host => document.querySelector("#p-" + host + " .stage")
+  || document.getElementById("p-" + (FLOAT_OVER[host] || host));
+
+/* What each window is called and how big it wants to be.
+ *
+ * The chat windows are 430 wide because a conversation needs a measure. A
+ * session list does not: it is a column of names, and 300 is enough for the
+ * longest one anybody types, so opening it at 430 would have been a window two
+ * thirds empty. The side is where it opens — the chat windows sit over the thing
+ * you came to look at, and so does this one, on the right, which is where the
+ * list already was. */
+const FLOAT_WINDOW = {
+  browser:  { title: "Chat",     w: 430, h: 460, side: "right" },
+  terminal: { title: "Chat",     w: 430, h: 460, side: "left" },
+  sessions: { title: "Sessions", w: 300, h: 420, side: "right" },
+};
+const floatShape = host => FLOAT_WINDOW[host] || FLOAT_WINDOW.browser;
+
+/** the real height of a window's title bar, so a minimized window is exactly that */
+function floatHeadH(win) {
+  const h = win && win.head ? Math.round(win.head.getBoundingClientRect().height) : 0;
+  return h >= 20 && h <= 80 ? h : 36;
+}
+
+/**
+ * Keep a box inside the workspace. A minimized window may be as short as its
+ * title bar — the old floor of 180px left a strip of dead space under it.
+ */
+function clampBox(host, b) {
+  const stage = floatStage(host);
+  if (!stage) return b;
+  const r = stage.getBoundingClientRect();
+  const W = Math.max(1, r.width);
+  const H = Math.max(1, r.height);
+  const win = FLOAT.windows.get(host);
+  const min = win && win.min;
+  const minW = min ? Math.min(230, W) : Math.min(300, W);
+  const minH = min ? Math.min(floatHeadH(win), H) : Math.min(180, H);
+  b.w = Math.max(minW, Math.min(b.w, W));
+  b.h = Math.max(minH, Math.min(b.h, H));
+  // keep at least 90px wide and the whole header reachable
+  b.x = Math.max(-b.w + 90, Math.min(b.x, W - 90));
+  b.y = Math.max(0, Math.min(b.y, Math.max(0, H - 32)));
+  return b;
+}
+
+/** true when the workspace is too small for a floating window to make sense */
+function floatTiny(host) {
+  const stage = floatStage(host);
+  if (!stage) return false;
+  const r = stage.getBoundingClientRect();
+  return r.width < 420 || r.height < 300;
+}
+
+/** the floor for resizing by hand, which may go smaller than the clamp floor */
+function floatMinBox(host) {
+  const stage = floatStage(host);
+  const r = stage ? stage.getBoundingClientRect() : { width: 900, height: 600 };
+  return { w: Math.max(220, Math.min(280, r.width)), h: Math.max(150, Math.min(200, r.height)) };
+}
+
+function defaultBox(host) {
+  const stage = floatStage(host);
+  const r = stage ? stage.getBoundingClientRect() : { width: 900, height: 600 };
+  const shape = floatShape(host);
+  const w = Math.min(shape.w, Math.max(240, r.width - 40));
+  const h = Math.min(shape.h, Math.max(200, r.height - 40));
+  // over the canvas on the right for the browser, over the shell on the left
+  // for the terminal, so the window never covers what you came to look at
+  const x = shape.side === "left" ? 24 : Math.max(24, r.width - w - 24);
+  const y = Math.max(0, r.height - h - 24);
+  return clampBox(host, { x, y, w, h });
+}
+
+/* ------------------------------- tiling -------------------------------- */
+
+/** the named sizes a window can take, in one place so the menu and the
+    keyboard shortcuts can never disagree about what "left half" means */
+function floatTile(host, where) {
+  const stage = floatStage(host);
+  if (!stage) return null;
+  const r = stage.getBoundingClientRect();
+  const W = Math.round(r.width);
+  const H = Math.round(r.height);
+  const halfW = Math.round(W / 2);
+  const halfH = Math.round(H / 2);
+  const boxes = {
+    left:   { x: 0, y: 0, w: halfW, h: H },
+    right:  { x: W - halfW, y: 0, w: halfW, h: H },
+    top:    { x: 0, y: 0, w: W, h: halfH },
+    bottom: { x: 0, y: H - halfH, w: W, h: halfH },
+    full:   { x: 0, y: 0, w: W, h: H },
+  };
+  return boxes[where] || null;
+}
+
+const FLOAT_TILES = [
+  ["left",   "Left half",   "Alt+Ctrl+←"],
+  ["right",  "Right half",  "Alt+Ctrl+→"],
+  ["top",    "Top half",    "Alt+Ctrl+↑"],
+  ["bottom", "Bottom half", "Alt+Ctrl+↓"],
+  ["full",   "Fill",        "Alt+Ctrl+0"],
+];
+
+/* --------------------------- the window ------------------------------- */
 
 function floatBuild(host) {
   const el = document.createElement("section");
   el.className = "floatwin";
   el.dataset.host = host;
   el.setAttribute("role", "dialog");
-  el.setAttribute("aria-label", "Chat");
+  el.setAttribute("aria-label", floatShape(host).title);
   el.tabIndex = -1;
   el.hidden = true;
 
@@ -5238,69 +5404,436 @@ function floatBuild(host) {
   dot.className = "fw-dot";
   const title = document.createElement("span");
   title.className = "fw-title";
-  title.textContent = "Chat";
+  title.textContent = floatShape(host).title;
   const sub = document.createElement("span");
   sub.className = "fw-sub";
-  sub.textContent = host;
-  const close = document.createElement("button");
-  close.type = "button";
-  close.className = "fw-btn";
-  close.textContent = "\u2715";
-  close.title = "Close";
-  close.setAttribute("aria-label", "Close the chat over this workspace");
-  close.addEventListener("click", e => { e.stopPropagation(); closeFloat(host); });
+  // the subtitle repeats the host for the chat windows; the session window is
+  // already called Sessions, so it says nothing rather than saying it twice
+  sub.textContent = host === "sessions" ? "" : host;
   const ctl = document.createElement("div");
   ctl.className = "fw-ctl";
-  ctl.appendChild(close);
+
+  const mkBtn = (glyph, title2, fn) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "fw-btn";
+    b.textContent = glyph;
+    b.title = title2;
+    b.setAttribute("aria-label", title2);
+    b.addEventListener("click", e => { e.stopPropagation(); fn(); });
+    return b;
+  };
+  const bSize = mkBtn("⋯", "Size and position", e => floatOpenMenu(host, bSize));
+  const bMin = mkBtn("–", "Minimize", () => toggleFloatMin(host));
+  const bMax = mkBtn("□", "Maximize", () => toggleFloatMax(host));
+  const bClose = mkBtn("✕", "Close", () => closeFloat(host));
+  ctl.append(bSize, bMin, bMax, bClose);
+
+  /* one menu, built for whichever window it belongs to */
+  const menu = document.createElement("div");
+  menu.className = "fw-menu";
+  menu.hidden = true;
+  menu.setAttribute("role", "menu");
+  for (const [id, label, key] of FLOAT_TILES) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "menuitem");
+    b.append(document.createTextNode(label));
+    const k = document.createElement("span");
+    k.className = "fm-key";
+    k.textContent = key;
+    b.append(k);
+    b.addEventListener("click", () => { floatCloseMenu(); floatTileTo(host, id); });
+    menu.appendChild(b);
+  }
+  const rule = document.createElement("hr");
+  menu.appendChild(rule);
+  const mk = (label, key, fn) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "menuitem");
+    b.append(document.createTextNode(label));
+    const k = document.createElement("span");
+    k.className = "fm-key";
+    k.textContent = key;
+    b.append(k);
+    b.addEventListener("click", () => { floatCloseMenu(); fn(); });
+    menu.appendChild(b);
+    return b;
+  };
+  const bReset = mk("Reset size", "Alt+Ctrl+R", () => {
+    const win = FLOAT.windows.get(host);
+    if (!win) return;
+    win.min = false; win.max = false; win.restore = null; win.el.hidden === false;
+    win.box = defaultBox(host);
+    floatApply(win); floatRemember(win); floatFocus(win);
+  });
+  const bSnap = mk("Snap to edges", "Alt+Ctrl+S", () => {
+    const win = FLOAT.windows.get(host);
+    if (win) { win.snap = !win.snap; floatApply(win); }
+  });
+  menu.appendChild(bClose ? document.createComment("") : document.createComment(""));
+  bClose.dataset.role = "unused";
 
   head.append(dot, title, sub, ctl);
   const body = document.createElement("div");
   body.className = "fw-body";
 
-  el.append(head, body);
+  const guides = ["v", "h"].map(dir => {
+    const g = document.createElement("div");
+    g.className = "fw-guide " + dir;
+    g.hidden = true;
+    return g;
+  });
+
+  /* all eight handles, so a window against any edge can still be resized */
+  const grips = ["n", "ne", "e", "se", "s", "sw", "w", "nw"].map(dir => {
+    const g = document.createElement("div");
+    g.className = "fw-rz";
+    g.dataset.dir = dir;
+    return g;
+  });
+
+  el.append(head, body, menu, ...guides, ...grips);
   floatStage(host).appendChild(el);
 
-  const win = { host, el, head, body, sub, dot, close, open: false };
+  const win = { host, el, head, body, sub, dot, menu, bSize, bMin, bMax, guides,
+    box: defaultBox(host), min: false, max: false, snap: true, restore: null, open: false };
   FLOAT.windows.set(host, win);
+  wireFloat(win);
+  floatApply(win);
   return win;
 }
 
-/* A window that fills the stage does not get dragged, so its title bar does not
-   ask to be dragged either — a bar that says grab me and then will not is worse
-   than no bar. What is left is where the name lives and where Escape is read
-   from, which is a bar. */
-function wireFloat(win) {
-  win.el.addEventListener("keydown", e => {
-    if (e.key !== "Escape") return;
-    closeFloat(win.host);
-    e.preventDefault();
-  });
-  win.el.addEventListener("focusin", () => floatFocus(win));
+/* -------------------------- applying geometry -------------------------- */
+
+function floatApply(win) {
+  const b = win.box;
+  const min = !!win.min;
+  const max = !!win.max;
+  win.el.style.left = Math.round(b.x) + "px";
+  win.el.style.top = Math.round(b.y) + "px";
+  win.el.style.width = Math.round(b.w) + "px";
+  // a minimized window is its title bar and nothing else
+  win.el.style.height = (min ? floatHeadH(win) : Math.round(b.h)) + "px";
+  win.el.classList.toggle("fw-min", min);
+  win.el.classList.toggle("fw-max", max);
+  win.bMax.textContent = max ? "❐" : "□";
+  win.bMax.title = win.bMax.ariaLabel = max ? "Restore" : "Maximize";
+  if (win.bSize) win.bSize.textContent = "⋯";
 }
 
+/** the alignment guides belong to a drag, and only to a drag */
+function floatHideGuides(win) {
+  for (const g of win.guides) g.hidden = true;
+}
+
+function floatRemember(win) {
+  floatSave(win.host, win.box, { min: win.min, max: win.max });
+}
+
+function floatRestore(win) {
+  const saved = floatSaved()[win.host];
+  if (saved && typeof saved.x === "number") {
+    win.min = !!saved.min;
+    win.max = !!saved.max;
+    win.box = clampBox(win.host, { x: saved.x, y: saved.y, w: saved.w, h: saved.h });
+  }
+  floatApply(win);
+}
+
+/** small workspaces get a near-fullscreen sheet, never a window off-screen */
+function floatAutoMode(win) {
+  const stage = floatStage(win.host);
+  if (!stage) return;
+  if (floatTiny(win.host)) {
+    const r = stage.getBoundingClientRect();
+    // remember what the user had, so a wider workspace can give it back
+    if (!win.sheetBox && !(win.max || win.min)) win.sheetBox = { x: win.box.x, y: win.box.y, w: win.box.w, h: win.box.h };
+    win.box = clampBox(win.host, { x: 8, y: 8, w: r.width - 16, h: r.height - 16 });
+    win.el.classList.add("fw-sheet");
+  } else {
+    win.el.classList.remove("fw-sheet");
+    if (win.sheetBox) { win.box = clampBox(win.host, win.sheetBox); win.sheetBox = null; }
+  }
+}
+
+/* --------------------------- bring to front ---------------------------- */
+
 function floatFocus(win) {
-  for (const w of FLOAT.windows.values()) w.el.classList.toggle("fw-focus", w === win);
+  for (const w of FLOAT.windows.values()) w.el.classList.remove("fw-focus");
+  win.el.classList.add("fw-focus");
 }
 
 function bringToFront(win) {
+  FLOAT.zTop += 1;
   win.el.style.zIndex = String(FLOAT.zTop);
   floatFocus(win);
 }
 
-/* --------------------------- open and close ----------------------------- */
+/* ------------------------ alignment while dragging ---------------------- */
 
+/**
+ * While the window is being moved, line its edges and centre up with the
+ * workspace and show a guide. Position only: a drag must never resize, because
+ * a window that changes size under your cursor is the opposite of predictable.
+ */
+function floatAlign(win, px, py) {
+  const stage = floatStage(win.host);
+  if (!stage) return null;
+  const r = stage.getBoundingClientRect();
+  const S = FLOAT.SNAP;
+  const b = win.box;
+  /* the window's own edges, measured against the workspace guides */
+  const tolX = [[b.x, 0], [b.x + b.w, r.width], [b.x + b.w / 2, r.width / 2]];
+  const tolY = [[b.y, 0], [b.y + b.h, r.height], [b.y + b.h / 2, r.height / 2]];
+  let gx = null, gy = null;
+  for (const [at, want] of tolX) if (Math.abs(at - want) <= S) { gx = want; break; }
+  for (const [at, want] of tolY) if (Math.abs(at - want) <= S) { gy = want; break; }
+  if (gx === null && gy === null) return null;
+  const nx = gx === null ? b.x : Math.round(gx - (gx === 0 ? 0 : gx === Math.round(r.width) ? b.w : b.w / 2));
+  const ny = gy === null ? b.y : Math.round(gy - (gy === 0 ? 0 : gy === Math.round(r.height) ? b.h : b.h / 2));
+  return { x: nx, y: ny, gx, gy };
+}
+
+function floatShowGuide(win, align) {
+  const stage = floatStage(win.host);
+  if (!stage) return;
+  const r = stage.getBoundingClientRect();
+  const [gv, gh] = win.guides;
+  if (gv) { gv.hidden = align.gx === null; gv.style.left = (align.gx || 0) + "px"; }
+  if (gh) { gh.hidden = align.gy === null; gh.style.top = (align.gy || 0) + "px"; }
+  void r;
+}
+
+/* ------------------------------ dragging -------------------------------- */
+
+function floatDrag(win, e, mode) {
+  if (win.max || win.min) return;
+  const start = { px: e.clientX, py: e.clientY, x: win.box.x, y: win.box.y, w: win.box.w, h: win.box.h };
+  const id = e.pointerId;
+  const stage = floatStage(win.host);
+  const sr = stage ? stage.getBoundingClientRect() : { left: 0, top: 0 };
+  const floor = floatMinBox(win.host);
+  win.el.classList.add("fw-drag");
+  const onMove = ev => {
+    if (ev.pointerId !== id) return;
+    const dx = ev.clientX - start.px;
+    const dy = ev.clientY - start.py;
+    if (mode === "move") {
+      win.box.x = start.x + dx;
+      win.box.y = start.y + dy;
+      clampBox(win.host, win.box);
+      if (win.snap !== false) {
+        const align = floatAlign(win, ev.clientX - sr.left, ev.clientY - sr.top);
+        if (align) {
+          win.box.x = align.x; win.box.y = align.y;
+          clampBox(win.host, win.box);
+          floatShowGuide(win, align);
+        } else {
+          for (const g of win.guides) g.hidden = true;
+        }
+      }
+    } else {
+      /* the west and north handles move the origin as well as the size */
+      if (mode.indexOf("e") !== -1) win.box.w = start.w + dx;
+      if (mode.indexOf("s") !== -1) win.box.h = start.h + dy;
+      if (mode.indexOf("w") !== -1) { win.box.w = start.w - dx; win.box.x = start.x + dx; }
+      if (mode.indexOf("n") !== -1) { win.box.h = start.h - dy; win.box.y = start.y + dy; }
+      if (win.box.w < floor.w) {
+        if (mode.indexOf("w") !== -1) win.box.x = start.x + start.w - floor.w;
+        win.box.w = floor.w;
+      }
+      if (win.box.h < floor.h) {
+        if (mode.indexOf("n") !== -1) win.box.y = start.y + start.h - floor.h;
+        win.box.h = floor.h;
+      }
+      clampBox(win.host, win.box);
+      for (const g of win.guides) g.hidden = true;
+    }
+    floatApply(win);
+  };
+  const onUp = ev => {
+    if (ev.pointerId !== id) return;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+    win.el.classList.remove("fw-drag");
+    floatHideGuides(win);
+    floatRemember(win);
+    // the chat must re-measure itself now that its box changed
+    composerGrow();
+    chatScroll();
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
+  e.preventDefault();
+}
+
+/* ----------------------------- the menu -------------------------------- */
+
+function floatCloseMenu() {
+  for (const w of FLOAT.windows.values()) if (w.menu) w.menu.hidden = true;
+}
+
+function floatOpenMenu(host, anchor) {
+  const win = FLOAT.windows.get(host);
+  if (!win) return;
+  const open = win.menu.hidden;
+  floatCloseMenu();
+  if (!open) return;
+  win.menu.hidden = false;
+  const stage = floatStage(host).getBoundingClientRect();
+  const r = anchor.getBoundingClientRect();
+  // keep the menu inside the window, whatever size the window is
+  const mh = win.menu.offsetHeight;
+  const mw = win.menu.offsetWidth;
+  const winW = win.el.offsetWidth;
+  const winH = win.el.offsetHeight;
+  let top = r.bottom - stage.top - win.box.y + 4;
+  let left = r.right - stage.left - win.box.x - mw;
+  top = Math.max(2, Math.min(top, winH - mh - 4));
+  left = Math.max(2, Math.min(left, winW - mw - 4));
+  win.menu.style.top = Math.round(top) + "px";
+  win.menu.style.left = Math.round(left) + "px";
+  bringToFront(win);
+  const first = win.menu.querySelector("button");
+  if (first) first.focus();
+}
+
+function floatTileTo(host, where) {
+  const win = FLOAT.windows.get(host);
+  const box = floatTile(host, where);
+  if (!win || !box) return;
+  win.min = false;
+  win.max = where === "full";
+  if (where !== "full") win.restore = win.restore || { x: win.box.x, y: win.box.y, w: win.box.w, h: win.box.h };
+  win.box = clampBox(host, box);
+  floatApply(win);
+  floatRemember(win);
+  composerGrow();
+  chatScroll();
+}
+
+/* ------------------------------- wiring -------------------------------- */
+
+function floatKeys(win, e) {
+  if (win.min) return false;
+  const step = e.shiftKey ? 1 : 12;
+  const b = win.box;
+  const mod = e.altKey && e.ctrlKey;
+  if (mod) {
+    const map = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "top", ArrowDown: "bottom", "0": "full" };
+    const where = map[e.key];
+    if (where) { e.preventDefault(); floatTileTo(win.host, where); return true; }
+    if (e.key === "r" || e.key === "R") {
+      e.preventDefault();
+      win.max = false; win.min = false; win.restore = null;
+      win.box = defaultBox(win.host);
+      floatApply(win); floatRemember(win);
+      return true;
+    }
+    if (e.key === "s" || e.key === "S") {
+      e.preventDefault();
+      win.snap = win.snap === false;
+      floatShowSnapHint(win);
+      return true;
+    }
+    return false;
+  }
+  if (win.max) return false;
+  let hit = true;
+  switch (e.key) {
+    case "ArrowLeft":  e.shiftKey ? (b.w = Math.max(floatMinBox(win.host).w, b.w - step)) : (b.x -= step); break;
+    case "ArrowRight": e.shiftKey ? (b.w += step) : (b.x += step); break;
+    case "ArrowUp":    e.shiftKey ? (b.h = Math.max(floatMinBox(win.host).h, b.h - step)) : (b.y -= step); break;
+    case "ArrowDown":  e.shiftKey ? (b.h += step) : (b.y += step); break;
+    default: hit = false;
+  }
+  if (!hit) return false;
+  e.preventDefault();
+  clampBox(win.host, b);
+  floatApply(win);
+  floatRemember(win);
+  return true;
+}
+
+function floatShowSnapHint(win) {
+  win.sub.textContent = win.host + (win.snap === false ? " · snapping off" : " · snapping on");
+  paintFloatHeader(win.host);
+  setTimeout(() => { if (win.open) paintFloatHeader(win.host); }, 1200);
+}
+
+function wireFloat(win) {
+  win.el.addEventListener("pointerdown", () => bringToFront(win));
+
+  win.head.addEventListener("pointerdown", e => {
+    if (e.target.closest(".fw-btn")) return;
+    if (win.min) { toggleFloatMin(win.host); return; }
+    bringToFront(win);
+    floatDrag(win, e, "move");
+  });
+
+  // right-click the title bar, the way every other window behaves
+  win.head.addEventListener("contextmenu", e => {
+    e.preventDefault();
+    floatOpenMenu(win.host, e.target.closest(".fw-head"));
+  });
+
+  win.el.querySelectorAll(".fw-rz").forEach(g => {
+    g.addEventListener("pointerdown", e => { bringToFront(win); floatDrag(win, e, g.dataset.dir); });
+  });
+
+  win.menu.addEventListener("pointerdown", e => e.stopPropagation());
+
+  // double-click the title bar, the way every other window behaves
+  win.head.addEventListener("dblclick", e => {
+    if (e.target.closest(".fw-btn")) return;
+    toggleFloatMax(win.host);
+  });
+
+  win.el.addEventListener("keydown", e => {
+    if (e.key === "Escape") {
+      if (!win.menu.hidden) { floatCloseMenu(); return; }
+      closeFloat(win.host);
+      e.preventDefault();
+      return;
+    }
+    if (floatKeys(win, e)) return;
+  });
+
+  win.el.addEventListener("focusin", () => floatFocus(win));
+}
+
+document.addEventListener("pointerdown", e => {
+  if (e.target.closest(".fw-menu") || e.target.closest(".fw-btn")) return;
+  floatCloseMenu();
+}, true);
+
+/* ---------------------------- open / close ----------------------------- */
+
+/**
+ * Open the chat for a host. Clicking the button again focuses the window that
+ * is already there — there is never a second chat.
+ */
 function openFloat(host) {
-  if (FLOAT_HOSTS.indexOf(host) === -1) return;
+  if (FLOAT_HOSTS.indexOf(host) === -1 && host !== "sessions") return;
   const existing = FLOAT.windows.get(host);
-  const win = existing || floatBuild(host);
-  if (!existing) wireFloat(win);
+  const win = existing && existing.open ? existing : (existing || floatBuild(host));
+  if (!existing) floatRestore(win);
+  floatAutoMode(win);
   win.open = true;
   win.el.hidden = false;
+  floatHideGuides(win);
+  floatApply(win);
   bringToFront(win);
-  mountChat(host);
-  paintFloatHeader(host);
+  // what goes in the window is the only thing that differs between hosts:
+  // the chat for the two chat windows, the session list for the third
+  if (host === "sessions") mountSessionList(win);
+  else { mountChat(host); paintFloatHeader(host); }
   win.el.focus({ preventScroll: true });
-  if (chatInput && !CHAT.busy) chatInput.focus();
+  if (host !== "sessions" && chatInput && !CHAT.busy) chatInput.focus();
   return win;
 }
 
@@ -5310,7 +5843,10 @@ function closeFloat(host) {
   if (CHAT.host === host && VOICE.on) voiceStop();
   win.open = false;
   win.el.hidden = true;
-  if (CHAT.host === host) mountChat("page");
+  floatCloseMenu();
+  floatRemember(win);
+  if (host === "sessions") unmountSessionList();
+  else if (CHAT.host === host) mountChat("page");
 }
 
 function closeAllFloats() {
@@ -5324,41 +5860,110 @@ function focusFloat(host) {
   const win = FLOAT.windows.get(host);
   if (!win || !win.open) return openFloat(host);
   bringToFront(win);
-  mountChat(host);
-  if (chatInput && !CHAT.busy) chatInput.focus();
+  if (win.min) toggleFloatMin(win.host);
+  if (host === "sessions") mountSessionList(win);
+  else { mountChat(host); if (chatInput && !CHAT.busy) chatInput.focus(); }
   return win;
 }
 
-/* --------------------- hosting the one real chat ------------------------ */
+function toggleFloatMin(host) {
+  const win = FLOAT.windows.get(host);
+  if (!win) return;
+  if (win.min) {
+    if (win.restore) win.box = win.restore;
+    win.min = false;
+  } else {
+    if (!win.max) win.restore = { x: win.box.x, y: win.box.y, w: win.box.w, h: win.box.h };
+    win.max = false;
+    // clampBox reads win.min, so it has to be set before the box is clamped
+    win.min = true;
+    win.box = { x: win.box.x, y: Math.min(win.box.y, 6), w: Math.min(260, win.box.w), h: floatHeadH(win) };
+  }
+  clampBox(win.host, win.box);
+  floatApply(win);
+  floatRemember(win);
+  if (!win.min) { composerGrow(); chatScroll(); }
+}
 
-/* There is one chat. It is moved into a window and moved back; it is never
-   copied, so the conversation cannot exist in two places at once and there is
-   nothing to keep in step. */
-function chatHome() {
-  return $("chatHome");
+function toggleFloatMax(host) {
+  const win = FLOAT.windows.get(host);
+  if (!win) return;
+  const stage = floatStage(host);
+  if (!stage) return;
+  if (win.max) {
+    if (win.restore) win.box = win.restore;
+    win.max = false;
+  } else {
+    if (win.min) { win.min = false; if (win.restore) win.box = win.restore; }
+    else win.restore = { x: win.box.x, y: win.box.y, w: win.box.w, h: win.box.h };
+    const r = stage.getBoundingClientRect();
+    win.max = true;
+    win.box = { x: 0, y: 0, w: r.width, h: r.height };
+  }
+  clampBox(win.host, win.box);
+  floatApply(win);
+  floatRemember(win);
+  composerGrow();
+  chatScroll();
+}
+
+/* --------------------- hosting the one real chat ----------------------- */
+
+const chatHome = () => document.getElementById("chatHome");
+
+/**
+ * Move the single .chat element into the given host. Nothing is duplicated:
+ * the same nodes move, so the same conversation continues.
+ */
+function mountSessionList(win) {
+  const side = $("ocSide");
+  if (side && win && win.body) {
+    // the list ships hidden, because before it was a window the only thing that
+    // showed it was a class on a column; a window is shown by being in the body,
+    // so the attribute has to come off or the window opens with nothing in it
+    side.hidden = false;
+    if (side.parentNode !== win.body) win.body.appendChild(side);
+  }
+  return side;
+}
+
+function unmountSessionList() {
+  const side = $("ocSide");
+  const home = $("chatHome");
+  if (!side) return side;
+  side.hidden = true;
+  if (home && side.parentNode !== home) home.appendChild(side);
+  return side;
 }
 
 function mountChat(host) {
   const home = chatHome();
   const chat = document.querySelector(".chat");
   if (!chat) return;
-  const win = host === "page" ? null : FLOAT.windows.get(host);
-  const target = win && win.open ? win.body : home;
+  const target = host === "page" ? home
+    : (FLOAT.windows.get(host) && FLOAT.windows.get(host).open ? FLOAT.windows.get(host).body : home);
   if (chat.parentNode !== target) target.appendChild(chat);
   CHAT.host = host === "page" ? "page" : host;
-
+  const close = $("chatCloseFloat");
+  if (close) close.hidden = CHAT.host === "page";
   composerGrow();
   chatScroll();
   paintChatMeta();
 }
 
-/** keep the window labels in step with the backend, like the chat header */
 function paintFloatHeader(host) {
   const win = FLOAT.windows.get(host);
   if (!win) return;
-  paintChatMeta();
+  const p = typeof activeProfile === "function" ? activeProfile() : null;
+  const bits = [host];
+  if (p) bits.push(p.name);
+  if (CHAT.busy) bits.push("working…");
+  win.sub.textContent = bits.join(" · ");
+  win.el.classList.toggle("fw-busy", !!CHAT.busy);
 }
 
+
+/** keep the window labels in step with the backend, like the chat header */
 function paintAllFloatHeaders() {
   for (const host of FLOAT_HOSTS) {
     const win = FLOAT.windows.get(host);
@@ -5366,9 +5971,10 @@ function paintAllFloatHeaders() {
   }
 }
 
-/* ------------------------------ lifecycle ------------------------------- */
+/* ------------------------------ lifecycle ------------------------------ */
 
-/* called from setTab(); declared as a function so the boot call can reach it */
+/** called from setTab(); declared as a function so the boot call can reach it */
+
 function onTabChange(key) {
   if (key === "chat") {
     closeAllFloats();
@@ -5382,17 +5988,30 @@ function onTabChange(key) {
   /* the list shows what a turn just wrote, and the relative times in it go
      stale on their own, so it is repainted whenever it comes into view */
   if (key === "sessions") paintSessions();
+  // and the session window needs nothing here: it is only ever interacted with
+  // while the chat is showing, and it keeps its own geometry.
 }
 
-/* The window follows the stage by itself — it is inset:0 inside it — so a resize
-   needs no geometry pass. It does need the two things that measure themselves:
-   the composer's height depends on how wide it is, because text that fitted on
-   one line may need two after the window narrows, and the log has to know
-   whether it is still at the bottom. */
-window.addEventListener("resize", () => {
-  composerGrow();
-  chatScroll();
-});
+/** the workspace may have been resized or re-laid-out; keep windows legal */
+function reclampFloats() {
+  for (const host of FLOAT_HOSTS) {
+    const win = FLOAT.windows.get(host);
+    if (!win) continue;
+    floatAutoMode(win);
+    if (win.max) {
+      const stage = floatStage(host);
+      if (stage) {
+        const r = stage.getBoundingClientRect();
+        win.box = clampBox(host, { x: 0, y: 0, w: r.width, h: r.height });
+      }
+    } else {
+      clampBox(host, win.box);
+    }
+    floatApply(win);
+  }
+}
+
+window.addEventListener("resize", () => reclampFloats());
 
 /** one delegated listener serves every host's Chat button */
 document.addEventListener("click", e => {
@@ -6474,50 +7093,81 @@ function wireSessions() {
   const wipe = $("sesWipe");
   if (wipe) wipe.addEventListener("click", () => sesWipe());
 
-  /* The session list: a column of the chat panel, opened and closed by one
-   * button in the bar above it.
+  /* The session list is a window, and the toggle opens and closes it.
    *
-   * It was a float window for a commit, on the reasoning that a window is what
-   * you can move. That reasoning holds for the chat over a workspace, where the
-   * chat is somewhere you go. It does not hold here: the list is somewhere you
-   * consult while reading, so a full-bleed panel would hide the conversation you
-   * are reading and a draggable one is a lot of machinery to avoid the same
-   * thing. A column is the honest answer, and with the windows no longer keeping
-   * a box to choose there is only one width worth having.
+   * It was a column of the chat panel's grid, and below 900px an overlay pinned
+   * to the right edge. Neither could be moved, and a control you cannot move is
+   * a control that is not really a window — so the drag, the eight resize
+   * handles, the tile menu, minimise, maximise and the remembered size and
+   * position all come from the same machinery the chat over Browser and Terminal
+   * already uses. Nothing was built for this; the window component was already
+   * generic and only ever needed to be told what goes in the body.
    *
-   * What is left here is the preference and the button, which are the two things
-   * a column does not know about by itself. */
+   * What is left here is the preference and the button, because those are the
+   * two things the window does not know about. */
   const toggle = $("ocSideToggle");
   if (toggle) {
     const panelHead = $("chatPanelHead");
-    const side = $("ocSide");
-    const home = chatHome();
+    const closeBtn = $("chatCloseFloat");
 
-    /* Put the button back in the bar if something ever moved it. It lives there
-       and only there: the bar is the one place on screen that can open the list,
-       and a second copy of the control inside the list would be two controls
-       pretending to be one. */
-    if (panelHead && toggle.parentNode !== panelHead) panelHead.appendChild(toggle);
+    /* Where the toggle lives.
+     *
+     * In the panel header, always. It used to move into the list's own heading
+     * so it would travel with it — which was right when the list was a panel
+     * with no title bar of its own, and is not right now that it is a window
+     * with one: the window carries a close button in its title bar, and having a
+     * second control that closes the same thing inside the window is the same
+     * "two controls pretending to be one" problem one level down. The button
+     * opens the window; the window's own ✕ closes it. */
+    const rehome = () => {
+      if (panelHead) panelHead.insertBefore(toggle, closeBtn || null);
+    };
+
+    /* The window is the state. Asking the window is asking the thing itself,
+       which cannot be out of step with itself. */
+    const isOpen = () => {
+      const win = FLOAT.windows.get("sessions");
+      return !!(win && win.open);
+    };
 
     const setOpen = (on) => {
-      if (side) side.hidden = !on;
-      if (home) home.classList.toggle("has-sidebar", on);
+      if (on) openFloat("sessions");
+      else closeFloat("sessions");
       toggle.setAttribute("aria-expanded", on ? "true" : "false");
-      /* A toggle's label is what pressing it will do, not what it currently is.
-         A screen reader user gets that from the name, everyone else from the
-         tooltip, and both are wrong if they say the opposite of the action. */
+      // a toggle's label is what pressing it will do, not what it currently is;
+      // a screen reader user gets that from the name, and everyone else from
+      // the tooltip
       const what = on ? "Hide the session list" : "Show the session list";
       toggle.title = what;
       toggle.setAttribute("aria-label", what);
+      rehome();
       try { localStorage.setItem("octop:oc-sidebar", on ? "1" : "0"); } catch { }
     };
-
-    const isOpen = () => !!(side && !side.hidden);
 
     let saved = null;
     try { saved = localStorage.getItem("octop:oc-sidebar"); } catch { }
     setOpen(saved === null ? true : saved === "1");
     toggle.addEventListener("click", () => setOpen(!isOpen()));
+
+    /* The window can also be closed by its own title bar, by Escape, or by the
+     * tile menu, and the button has to follow it: the label it offers has to be
+     * the one that will happen next, or the button lies about what pressing it
+     * does.
+     *
+     * So the window is watched rather than told. It is also built here whether
+     * or not it is open, because that is the only way there is something to
+     * watch: a window that has never been opened does not exist, and the one
+     * case that matters most is the one where the list was closed at start —
+     * the button is then on screen with a label nothing will ever correct. */
+    const win = FLOAT.windows.get("sessions") || floatBuild("sessions");
+    new MutationObserver(() => {
+      const on = isOpen();
+      if (on === (toggle.getAttribute("aria-expanded") === "true")) return;
+      const what = on ? "Hide the session list" : "Show the session list";
+      toggle.setAttribute("aria-expanded", on ? "true" : "false");
+      toggle.title = what;
+      toggle.setAttribute("aria-label", what);
+    }).observe(win.el, { attributes: true, attributeFilter: ["hidden"] });
   }
 
   paintSessions();
