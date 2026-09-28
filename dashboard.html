@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Workbench — Browser + Terminal Preview</title>
+<title>O Browser — Browser Automation Console</title>
 <script>
 /* Appearance is applied from the <html> element in this inline block, before
    any of the stylesheet's work is painted. The full appearance code runs at the
@@ -317,15 +317,8 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
 .panel { flex:1; min-height:0; display:none; overflow:hidden; }
 .panel.on { display:flex; }
 
-/* Chat: one column of messages, composer pinned under a hairline. The
-   reading measure is capped at 720px and centred, so the line length
-   stays the same whatever the window is. */
-#p-chat .chatlog { flex:1 1 auto; min-height:0; overflow-y:auto;
-  padding:calc(20px * var(--fn-dens)) 0 calc(8px * var(--fn-dens)); scroll-behavior:smooth; }
-#p-chat .chatinner { max-width:640px; margin:0 auto; display:flex; flex-direction:column; gap:12px;
-  padding:0 calc(16px * var(--fn-dens)); }
-#p-chat .chatfoot { flex:none; padding:0 calc(20px * var(--fn-dens)) calc(6px * var(--fn-dens));
-  border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary); }
+/* Chat: one measure and one gutter for the page and floating window. */
+.chat { --oc-measure:720px; --oc-gutter:calc(20px * var(--fn-dens)); }
 
 /* OpenCode layout: the chat is the app. Messages take the full height, the
    composer sits at the bottom, a status line names the session and the model,
@@ -336,6 +329,28 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
   padding:3px calc(14px * var(--fn-dens));
   border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary);
   font-size:10.5px; color:var(--fn-text-tertiary); }
+.chat-panel-head { flex:none; display:flex; align-items:center; gap:5px; min-height:36px; padding:0 var(--oc-gutter);
+  border-bottom:1px solid var(--fn-border-secondary); background:var(--fn-bg-primary); }
+.chat-session-title { min-width:0; max-width:70%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:0; background:transparent;
+  color:var(--fn-text-primary); cursor:pointer; padding:4px 0; font:600 12px var(--fn-font-ui); text-align:left; }
+.chat-session-title:hover { color:var(--fn-text-secondary); }
+.chat-head-btn { display:grid; place-items:center; width:25px; height:25px; border:1px solid transparent; border-radius:var(--fn-radius-sm);
+  background:transparent; color:var(--fn-text-tertiary); cursor:pointer; padding:0; }
+.chat-head-btn:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
+.chat-session-tabs { display:flex; align-items:flex-end; gap:2px; min-height:30px; padding:3px var(--oc-gutter) 0;
+  border-bottom:1px solid var(--fn-border-secondary); background:var(--fn-bg-secondary); overflow-x:auto; scrollbar-width:none; }
+.chat-session-tabs::-webkit-scrollbar { display:none; }
+.chat-session-tab { display:inline-flex; align-items:center; gap:6px; max-width:190px; min-height:26px; padding:0 9px;
+  border:1px solid transparent; border-bottom:0; border-radius:var(--fn-radius-sm) var(--fn-radius-sm) 0 0;
+  background:transparent; color:var(--fn-text-tertiary); cursor:pointer; font:11px var(--fn-font-ui); white-space:nowrap; }
+.chat-session-tab:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
+.chat-session-tab.active { background:var(--fn-bg-primary); border-color:var(--fn-border-secondary); color:var(--fn-text-primary); }
+.chat-session-tab .tab-close { color:var(--fn-text-quaternary); font-size:12px; }
+.chat-session-tab .tab-close:hover { color:var(--fn-color-danger); }
+.chat-new-tab { flex:none; display:grid; place-items:center; width:28px; height:26px; margin:0 0 0 2px;
+  border:1px solid transparent; border-radius:var(--fn-radius-sm) var(--fn-radius-sm) 0 0; background:transparent;
+  color:var(--fn-text-tertiary); cursor:pointer; padding:0; }
+.chat-new-tab:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
 .oc-status .oc-session { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis;
   white-space:nowrap; font-weight:500; color:var(--fn-text-tertiary); }
 .oc-status .oc-model { flex:none; color:var(--fn-text-tertiary); }
@@ -625,7 +640,8 @@ select option { background:var(--fn-bg-elevated); color:var(--fn-text-primary); 
   display:flex; flex-direction:column; min-height:0; z-index:100;
 }
 .sb-head { display:flex; align-items:center; padding:12px 10px 8px; flex:none; min-width:0; }
-.sb-nav { flex:1; min-height:0; overflow-y:auto; padding:4px 10px 10px; }
+.sb-nav { flex:1; min-height:0; overflow-y:auto; padding:4px 10px 48px; position:relative; }
+.sb-nav > .nav-item[data-tab="settings"] { position:absolute; left:10px; right:10px; bottom:10px; width:auto; margin:0; }
 .nav-item {
   display:flex; align-items:center; gap:8px; padding:0 8px;
   height:calc(28px * var(--fn-dens));
@@ -793,23 +809,49 @@ body.tab-chat .wb-head { display:none; }
 .panel#p-chat.on, .panel#p-settings.on { flex-direction:row; overflow:hidden; }
 #p-chat .chat { flex:1; min-width:0; width:100%; display:flex; flex-direction:column; min-height:0; }
 
-.chatlog { flex:1 1 auto; min-height:0; overflow-y:auto; padding:calc(14px * var(--fn-dens)) 0 6px; scroll-behavior:smooth; }
-.chatempty { max-width:640px; margin:10px auto 0; text-align:center; color:var(--fn-text-tertiary);
+.chatlog { flex:1 1 auto; min-height:0; overflow-y:auto; padding:var(--oc-gutter) 0 6px; scroll-behavior:smooth; }
+.chatempty { max-width:var(--oc-measure); margin:10px auto 0; text-align:center; color:var(--fn-text-tertiary);
   font-size:12.5px; line-height:1.5; }
 .chatempty .oc-empty-title { color:var(--fn-text-primary); font-weight:600; }
 .chatempty .oc-empty-desc { color:var(--fn-text-tertiary); }
 .chatempty[hidden] { display:none; }
-.chatinner { max-width:720px; margin:0 auto; display:flex; flex-direction:column; gap:16px;
-  padding:0 calc(20px * var(--fn-dens)); }
+.empty-prompts { display:flex; flex-wrap:wrap; justify-content:center; gap:6px; margin-top:12px; }
+.empty-prompts button { border:1px solid var(--fn-border-secondary); background:transparent; color:var(--fn-text-secondary);
+  border-radius:calc(5px * var(--fn-radius-scale)); padding:5px 8px; cursor:pointer; font:inherit; font-size:11px; }
+.empty-prompts button:hover { background:var(--fn-bg-hover); color:var(--fn-text-primary); }
+.chat-network { display:flex; align-items:center; gap:8px; max-width:var(--oc-measure); margin:0 auto 8px; padding:5px 8px;
+  border-left:2px solid var(--fn-color-danger); color:var(--fn-text-secondary); background:var(--fn-bg-secondary); font-size:11px; }
+.chat-network button { margin-left:auto; border:1px solid var(--fn-border-input-alt); background:transparent; color:var(--fn-text-primary);
+  border-radius:calc(4px * var(--fn-radius-scale)); padding:3px 7px; cursor:pointer; font:inherit; font-size:10.5px; }
+.chatinner, .chatinner2 { max-width:var(--oc-measure); margin:0 auto; width:100%; }
+.chatinner { display:flex; flex-direction:column; gap:16px; padding:0 var(--oc-gutter); }
 
-.msg { display:flex; flex-direction:column; gap:5px; }
-.msg .who { font-size:10.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--fn-text-tertiary); }
-.msg .body { font-size:14px; line-height:1.6; color:var(--fn-text-primary); white-space:pre-wrap; word-break:break-word; }
-.msg.u .body { background:var(--fn-bg-secondary); border:1px solid var(--fn-border-secondary);
-  border-radius:8px; padding:9px 12px; }
+.msg { display:flex; flex-direction:column; gap:4px; position:relative; }
+.msg.same { margin-top:-6px; }
+.msg .msghead { display:flex; align-items:center; gap:8px; min-height:15px; }
+.msg .who { font-size:10px; font-weight:550; letter-spacing:.04em; text-transform:uppercase; color:var(--fn-text-tertiary); }
+.msg .time { font-size:10px; color:var(--fn-text-quaternary); font-variant-numeric:tabular-nums; }
+.msg .body { font-size:14px; line-height:1.6; color:var(--fn-text-primary); word-break:break-word; }
+.msg .msghead::before { content:"O"; display:grid; place-items:center; width:20px; height:20px; flex:none; border:1px solid var(--fn-border-input-alt);
+  border-radius:50%; color:var(--fn-text-secondary); font-size:10px; font-weight:600; }
+.msg.u .msghead::before { content:"U"; background:var(--fn-bg-secondary); color:var(--fn-text-primary); }
+.msg.u .body { background:var(--fn-bg-secondary); border:1px solid var(--fn-border-secondary); border-radius:calc(var(--fn-radius-lg) * var(--fn-radius-scale)); padding:8px 12px; }
 .msg.a .body { padding:1px 0; }
-.msg.err .body { color:var(--fn-color-danger); }
+.msg.err .body { border-left:2px solid var(--fn-color-danger); padding-left:10px; }
 .msg .body:empty { display:none; }
+.msg .body p { margin:0 0 10px; }
+.msg .body p:last-child { margin-bottom:0; }
+.msg .body ul { margin:0 0 10px 20px; padding:0; }
+.msg .body li + li { margin-top:3px; }
+.msg .body strong { font-weight:650; }
+.msg .body code { padding:1px 4px; border-radius:3px; background:var(--fn-bg-code); font:12px/1.4 var(--fn-font-mono); }
+.msg .codeblock { position:relative; margin:8px 0; padding:28px 10px 10px; overflow-x:auto; background:var(--fn-bg-code);
+  border:1px solid var(--fn-border-secondary); font:12px/1.55 var(--fn-font-mono); white-space:pre; }
+.msg .codeblock code { padding:0; background:transparent; }
+.msg .copycode { position:absolute; top:5px; right:5px; border:1px solid var(--fn-border-input-alt); background:transparent;
+  color:var(--fn-text-secondary); border-radius:3px; padding:2px 6px; cursor:pointer; font:10px var(--fn-font-ui); }
+.msg .copycode:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
+.msg .retry { align-self:flex-start; margin-top:7px; }
 
 .msg .files { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
 .msg .files .fchip { display:inline-flex; align-items:center; gap:6px; font-size:11.5px;
@@ -831,14 +873,18 @@ body.tab-chat .wb-head { display:none; }
   transition:transform calc(.12s * var(--fn-motion)); }
 .tooldetail[open] > summary::before { transform:rotate(90deg); }
 .tooldetail > summary:hover { color:var(--fn-text-primary); }
-.tooldetail .tlist { border-top:1px solid var(--fn-border-primary); padding:7px 11px; }
-.tooldetail .trow { display:flex; gap:8px; align-items:baseline; font-size:11.5px; padding:2px 0;
+.tooldetail .tlist { border-top:1px solid var(--fn-border-primary); border-left:1px solid var(--fn-border-secondary); margin:0 0 7px 12px; padding:4px 11px; }
+.tooldetail .trow { display:grid; grid-template-columns:16px minmax(90px,auto) minmax(0,1fr); gap:7px; align-items:baseline; font-size:11.5px; padding:4px 0;
   font-family:var(--fn-font-mono); }
 .tooldetail .trow .tname { color:var(--fn-text-brand); flex:none; }
-.tooldetail .trow .tname { color:var(--fn-text-brand); flex:none; }
+.tooldetail .trow .tstate { width:7px; height:7px; margin-top:3px; border-radius:50%; background:var(--fn-text-tertiary); font-size:0; }
+.tooldetail .trow.now .tstate { background:var(--fn-color-brand); animation:tpulse 1.1s ease-in-out infinite; }
+.tooldetail .trow.ok .tstate { background:var(--fn-color-success); }
+.tooldetail .trow.fail .tstate { background:var(--fn-color-danger); }
 .tooldetail .trow .targ { color:var(--fn-text-tertiary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.tooldetail .trow.ok .targ { color:var(--fn-color-success); }
-.tooldetail .trow.fail .targ { color:var(--fn-color-danger); }
+.tooldetail .trow .tdetail { grid-column:2 / -1; max-height:280px; overflow:auto; white-space:pre-wrap; color:var(--fn-text-tertiary); display:none; }
+.tooldetail .trow.open .tdetail { display:block; }
+.tooldetail .trow[tabindex] { cursor:pointer; }
 
 .thinking { display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--fn-text-tertiary); }
 .thinking .dots { display:inline-flex; gap:3px; }
@@ -846,10 +892,11 @@ body.tab-chat .wb-head { display:none; }
 .thinking .dots i:nth-child(2) { animation-delay:.16s; }
 .thinking .dots i:nth-child(3) { animation-delay:.32s; }
 @keyframes tpulse { 0%,100% { opacity:.25 } 50% { opacity:1 } }
+@media (prefers-reduced-motion:reduce) { .tooldetail .trow.now .tstate, .thinking .dots i { animation:none; opacity:1; } }
 
 /* composer */
-.chatfoot { flex:none; padding:calc(6px * var(--fn-dens)) 24px calc(18px * var(--fn-dens)); }
-.chatinner2 { max-width:680px; margin:0 auto; }
+.chatfoot { flex:none; padding:calc(6px * var(--fn-dens)) var(--oc-gutter) calc(18px * var(--fn-dens));
+  border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-primary); }
 .chatmeta { font-size:10.5px; color:var(--fn-text-tertiary); margin:0 0 5px 2px; display:flex; gap:8px; align-items:center; }
 .chatmeta a { color:var(--fn-text-tertiary); text-decoration:none; border-bottom:1px dotted var(--fn-border-tertiary); }
 .chatmeta a:hover { color:var(--fn-text-primary); }
@@ -877,7 +924,7 @@ body.tab-chat .wb-head { display:none; }
 
 /* The composer is the one control that earns a border of its own: it is the
    only thing on the page the user is about to type into. */
-.composer { display:flex; align-items:flex-end; gap:6px; padding:5px 6px 5px 8px;
+.composer { display:flex; flex-direction:column; align-items:stretch; gap:4px; padding:7px 8px 6px;
   background:var(--fn-bg-primary); border:1px solid var(--fn-border-input-alt);
   border-radius:calc(6px * var(--fn-radius-scale));
   transition:border-color var(--fn-transition); }
@@ -885,7 +932,15 @@ body.tab-chat .wb-head { display:none; }
 .composer textarea { flex:1; min-width:0; resize:none; border:none; outline:none; background:transparent;
   color:var(--fn-text-primary); font:inherit; font-size:13.5px; line-height:1.5; padding:5px 0;
   max-height:200px; overflow-y:auto; }
+.composer-controls { display:flex; align-items:center; gap:4px; min-height:27px; }
+.model-chip { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:1px solid var(--fn-border-secondary); background:transparent;
+  color:var(--fn-text-tertiary); border-radius:var(--fn-radius-sm); padding:4px 7px; cursor:pointer; font:10.5px var(--fn-font-ui); }
+.model-chip:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
 .composer textarea::placeholder { color:var(--fn-text-tertiary); }
+.command-menu { position:relative; max-width:var(--oc-measure); margin:0 auto 5px; border:1px solid var(--fn-border-secondary); background:var(--fn-bg-primary); }
+.command-menu button { display:block; width:100%; border:0; background:transparent; color:var(--fn-text-secondary); text-align:left;
+  padding:5px 8px; cursor:pointer; font:11px var(--fn-font-mono); }
+.command-menu button:hover, .command-menu button[aria-selected="true"] { background:var(--fn-bg-hover); color:var(--fn-text-primary); }
 .composer .cbtn { flex:none; width:26px; height:26px; border-radius:5px; border:none; cursor:pointer;
   display:grid; place-items:center; font-size:13px; line-height:1; background:transparent; color:var(--fn-text-tertiary);
   transition:background var(--fn-transition), color var(--fn-transition); }
@@ -901,6 +956,14 @@ body.tab-chat .wb-head { display:none; }
   color:var(--fn-color-danger);
   border:1px solid color-mix(in srgb, var(--fn-color-danger) 40%, transparent); border-radius:5px; }
 .composer .stop:hover { background:color-mix(in srgb, var(--fn-color-danger) 24%, transparent); }
+.status-dot { width:6px; height:6px; border-radius:50%; flex:none; background:var(--fn-color-success); }
+.status-dot.work { background:var(--fn-color-brand); }
+.status-dot.err { background:var(--fn-color-danger); }
+.status-text { color:var(--fn-text-tertiary); }
+.latest-btn { position:absolute; right:14px; bottom:10px; z-index:2; border:1px solid var(--fn-border-input-alt);
+  background:var(--fn-bg-primary); color:var(--fn-text-secondary); border-radius:calc(5px * var(--fn-radius-scale)); padding:5px 8px;
+  cursor:pointer; font:11px var(--fn-font-ui); }
+.latest-btn:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
 
 /* ============================ settings ============================ */
 /* Sections are ruled off from each other by a hairline, so the panel reads as
@@ -1214,16 +1277,16 @@ dialog.docdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 1
 /* Measured against the window, not the screen: a media query cannot see how wide
    the window is, and this window is resizable. */
 @container fw (max-width: 400px) {
-  .floatwin .chatlog, .floatwin .chatfoot { padding-left:11px; padding-right:11px; }
+  .floatwin .chat { --oc-gutter:11px; }
   .floatwin .fw-title { display:none; }
 }
 @container fw (max-width: 320px) {
-  .floatwin .chatlog, .floatwin .chatfoot { padding-left:9px; padding-right:9px; }
+  .floatwin .chat { --oc-gutter:9px; }
   .floatwin .fw-sub { display:none; }
 }
 
 @media (max-width:767px) {
-  .floatwin .chatlog, .floatwin .chatfoot { padding-left:10px; padding-right:10px; }
+  .floatwin .chat { --oc-gutter:10px; }
 }
 
 
@@ -1328,10 +1391,11 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
 
 .cbtn.mic { position:relative; color:var(--fn-text-tertiary); }
 .cbtn.mic.on { color:var(--fn-color-danger); }
-.cbtn.mic.on::after { content:""; position:absolute; inset:0; border-radius:8px;
-  border:1.5px solid var(--fn-color-danger); animation:micpulse 1.2s ease-out infinite; }
+.cbtn.mic.on::after { content:""; position:absolute; width:5px; height:5px; right:3px; top:3px; border-radius:50%;
+  background:var(--fn-color-danger); animation:micpulse 1.2s ease-in-out infinite; }
 .cbtn.mic.busy { color:var(--fn-text-quaternary); }
-@keyframes micpulse { 0% { transform:scale(1); opacity:.85 } 100% { transform:scale(1.45); opacity:0 } }
+@keyframes micpulse { 0%,100% { opacity:.35 } 50% { opacity:1 } }
+@media (prefers-reduced-motion:reduce) { .cbtn.mic.on::after { animation:none; opacity:1; } }
 .voicehint { font-size:11px; color:var(--fn-text-tertiary); margin:0 0 6px 2px; display:flex; gap:8px; align-items:center; }
 .voicehint.bad { color:var(--fn-color-danger); }
 .voicehint button { background:none; border:none; color:inherit; cursor:pointer;
@@ -1486,10 +1550,11 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
 
 
 </head>
-<body>
+<body data-brand="Octop">
 <div class="shell">
 
   <aside class="sidebar">
+    <div class="sb-head"><div class="logo" aria-label="O Browser">O Browser</div></div>
     <nav class="sb-nav" id="nav">
       <button class="nav-item on" data-tab="chat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.9-.9L3 21l1.9-5.1A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5z"/></svg><span class="lbl">Chat</span></button>
       <button class="nav-item" data-tab="browser"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/></svg><span class="lbl">Browser</span></button>
@@ -1513,12 +1578,20 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
           <div class="panel on" id="p-chat">
           <div class="chathome has-sidebar" id="chatHome">
               <div class="chat">
-              <div class="chatlog" id="chatLog">
-                <div class="chatempty" id="chatEmpty"><span class="oc-empty-title">Ready.</span> <span class="oc-empty-desc">Describe what you want done, or attach a file.</span></div>
+              <header class="chat-panel-head" id="chatPanelHead">
+                <button class="chat-session-title" id="chatSessionTitle" type="button" title="Rename session" aria-label="Rename current session">Chat Session</button>
+                <span class="grow"></span>
+                <button class="chat-head-btn chat-close" id="chatCloseFloat" type="button" title="Close floating chat" aria-label="Close floating chat" hidden><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+              </header>
+              <div class="chat-session-tabs" id="chatSessionTabs" role="tablist" aria-label="Open chat sessions"><button class="chat-new-tab" id="chatNew" type="button" title="New session" aria-label="New session"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+              <div class="chatlog" id="chatLog" role="log" aria-live="polite" aria-label="Octop conversation">
+                <div class="chatempty" id="chatEmpty"><span class="oc-empty-title">O Browser is ready.</span> <span class="oc-empty-desc">Ask O Browser to browse, inspect, or explain.</span><div class="empty-prompts"><button type="button" data-prompt="Open the browser and inspect the current page">Inspect the current page</button><button type="button" data-prompt="Summarize what is open in the browser">Summarize the browser</button><button type="button" data-prompt="Help me automate a browser task">Plan an automation</button></div></div>
+                <button class="latest-btn" id="chatLatest" type="button" hidden>Latest messages</button>
                 <div class="chatinner" id="chatLogInner"></div>
               </div>
               <div class="chatfoot">
                 <div class="chatinner2">
+                  <div class="chat-network" id="chatNetwork" hidden><span>Connection lost. Your conversation is still here.</span><button type="button" id="chatReconnect">Reconnect</button></div>
                   <details class="think" id="thinkRow" hidden>
                     <summary>
                       <span class="tdot"></span>
@@ -1529,35 +1602,34 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                   </details>
                   <div class="voicehint" id="voiceHint" hidden></div>
                   <div class="chatwork" id="chatWork" hidden></div>
-                  <div class="chatmeta" id="chatMeta"></div>
-                  <div class="chatmeta" id="chatAdd" style="margin:0 0 7px 2px">
-                    <button class="link" data-addai="full" type="button">+ Add AI</button>
-                    <span class="muted" style="opacity:.5">&nbsp;·&nbsp;</span>
-                    <button class="link" data-addai="model" type="button">Change model</button>
-                  </div>
                   <div class="atlist" id="atList"></div>
+                  <div class="command-menu" id="commandMenu" hidden role="listbox" aria-label="Chat commands"></div>
                   <div class="composer">
-                    <button class="cbtn" id="atBtn" type="button" title="Attach a file">+</button>
-                    <button class="cbtn mic" id="micBtn" type="button" title="Speak instead of typing" aria-label="Speak instead of typing" aria-pressed="false" hidden>
+                    <textarea id="chatInput" rows="1" placeholder="Message your agent…" aria-label="Message"></textarea>
+                    <div class="composer-controls">
+                    <button class="cbtn" id="atBtn" type="button" title="Attach a file" aria-label="Attach a file"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m21.4 11.6-8.8 8.8a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg></button>
+                    <button class="model-chip" id="chatModelChip" type="button" title="Change model" aria-label="Change model"><span id="chatModelChipText">Model</span></button>
+                    <span class="grow"></span>
+                    <button class="cbtn mic" id="micBtn" type="button" title="Start voice input (Ctrl+Shift+M)" aria-label="Start voice input" aria-pressed="false" hidden>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
                     </button>
-                    <textarea id="chatInput" rows="1" placeholder="Message your agent…" aria-label="Message"></textarea>
-                    <button class="cbtn send" id="chatSend" type="button" title="Send (Enter)">↑</button>
-                    <button class="cbtn stop" id="chatStop" type="button" title="Stop" hidden>■</button>
+                    <button class="cbtn send" id="chatSend" type="button" title="Send (Enter)" aria-label="Send message">↑</button>
+                    <button class="cbtn stop" id="chatStop" type="button" title="Stop" aria-label="Stop generation" hidden>■</button>
+                    </div>
                   </div>
                 </div>
               </div>
               <div class="oc-status" id="ocStatus">
                 <button class="oc-side-toggle" id="ocSideToggle" type="button" title="Toggle session sidebar" aria-label="Toggle session sidebar" aria-expanded="false">▤</button>
-                <span class="oc-session" id="sesName">New session</span>
+                <span class="oc-session" id="sesName"></span>
                 <span class="oc-model" id="ocModel">—</span>
                 <span class="oc-provider" id="ocProvider"></span>
+                <span class="status-dot" id="ocStatusDot" aria-hidden="true"></span><span class="status-text" id="ocStatusText">Ready</span>
               </div>
             </div>
             <aside class="oc-side" id="ocSide" hidden>
               <div class="oc-side-head">Sessions<div class="grow"></div></div>
               <div class="ses-list" id="ocSesList"></div>
-              <div class="oc-side-foot"><button class="btn sm" id="sesNew2" type="button">New session</button></div>
             </aside>
           </div>
           </div>
@@ -1655,7 +1727,6 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
           <div class="panel" id="p-sessions">
             <div class="sessions">
               <div class="ses-top">
-                <button class="btn pri sm" id="sesNewTop" type="button">New session</button>
                 <div class="grow"></div>
                 <span class="muted" id="sesCount"></span>
               </div>
@@ -1715,6 +1786,12 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                           </label>
                           <label class="fld"><span>Motion</span>
                             <select id="setMotion" class="fontpick"></select>
+                          </label>
+                          <label class="fld"><span>Voice input language</span>
+                            <select id="setVoiceLang" class="fontpick">
+                              <option value="id-ID">Bahasa Indonesia</option>
+                              <option value="en-US">English (US)</option>
+                            </select>
                           </label>
                           <div class="bg-custom" id="bgCustomWrap">
                             <input type="color" id="setBgA" value="#e85d75" title="Colour 1" aria-label="Colour 1" />
@@ -2034,8 +2111,10 @@ function setTab(key){
   document.querySelectorAll("#nav .nav-item").forEach(a => a.classList.toggle("on", a.dataset.tab === key));
   document.querySelectorAll(".panel").forEach(p => p.classList.toggle("on", p.id === "p-" + key));
   const m = META[key] || META.chat;
-  document.getElementById("wbTitle").textContent = m[0];
-  document.getElementById("wbSub").textContent = m[1];
+  const wbTitle = document.getElementById("wbTitle");
+  const wbSub = document.getElementById("wbSub");
+  if (wbTitle) wbTitle.textContent = m[0];
+  if (wbSub) wbSub.textContent = m[1];
   document.body.classList.toggle("tab-settings", key === "settings");
   document.body.classList.toggle("tab-chat", key === "chat");
   /* Which panel is showing lives on <body>, not on the panel: all four panels
@@ -2375,27 +2454,90 @@ const chatStop = $("chatStop");
 const chatMeta = $("chatMeta");
 const atList = $("atList");
 
-const CHAT = { attachments: [], runId: null, abort: null, busy: false };
+const CHAT = { attachments: [], runId: null, abort: null, busy: false, composing: false, pinned: true, history: [], historyIndex: -1, lastRequest: null };
+
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>'"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[c]));
+}
+
+function inlineMarkdown(value) {
+  return escapeHtml(value)
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+}
+
+function markdownHtml(text) {
+  const source = String(text || "");
+  const chunks = [];
+  let cursor = 0;
+  const fence = /```([^\n]*)\n?([\s\S]*?)```/g;
+  let match;
+  while ((match = fence.exec(source))) {
+    chunks.push(renderMarkdownText(source.slice(cursor, match.index)));
+    chunks.push('<div class="codeblock"><button class="copycode" type="button" aria-label="Copy code">Copy</button><code>' + escapeHtml(match[2]) + '</code></div>');
+    cursor = match.index + match[0].length;
+  }
+  chunks.push(renderMarkdownText(source.slice(cursor)));
+  return chunks.join("");
+}
+
+function renderMarkdownText(text) {
+  const blocks = String(text || "").split(/\n{2,}/).filter(Boolean);
+  return blocks.map(block => {
+    const lines = block.split("\n");
+    if (lines.length && lines.every(line => /^\s*[-*]\s+/.test(line))) {
+      return "<ul>" + lines.map(line => "<li>" + inlineMarkdown(line.replace(/^\s*[-*]\s+/, "")) + "</li>").join("") + "</ul>";
+    }
+    return "<p>" + lines.map(inlineMarkdown).join("<br>") + "</p>";
+  }).join("");
+}
+
+function messageTime() {
+  return new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" }).format(new Date());
+}
+
+function bindCopyButtons(body) {
+  body.querySelectorAll(".copycode").forEach(button => button.addEventListener("click", async () => {
+    const code = button.parentElement && button.parentElement.querySelector("code");
+    if (!code) return;
+    try { await navigator.clipboard.writeText(code.textContent || ""); button.textContent = "Copied"; }
+    catch { button.textContent = "Select"; }
+    setTimeout(() => { button.textContent = "Copy"; }, 1200);
+  }));
+}
 
 function showApiError(e) { chatNote("error", String((e && e.message) || e)); }
 
 /* ---------- message rendering ---------- */
 
-function chatScroll() {
-  if (chatLog) chatLog.scrollTop = chatLog.scrollHeight;
+function chatScroll(force) {
+  if (!chatLog) return;
+  if (force || CHAT.pinned) chatLog.scrollTop = chatLog.scrollHeight;
+  const latest = $("chatLatest");
+  if (latest) latest.hidden = CHAT.pinned;
 }
 
 function addMsg(who, text, opts) {
   const o = opts || {};
   const wrap = document.createElement("div");
   wrap.className = "msg " + who + (o.error ? " err" : "");
-  const label = document.createElement("div");
+  const previous = (chatInner || chatLog).lastElementChild;
+  if (previous && previous.classList.contains("msg") && previous.classList.contains(who)) wrap.classList.add("same");
+  const head = document.createElement("div");
+  head.className = "msghead";
+  const label = document.createElement("span");
   label.className = "who";
-  label.textContent = o.label || (who === "u" ? "You" : "Agent");
+  label.textContent = o.label || (who === "u" ? "You" : "Octop");
+  const time = document.createElement("time");
+  time.className = "time";
+  time.textContent = messageTime();
+  time.dateTime = new Date().toISOString();
+  head.append(label, time);
   const body = document.createElement("div");
   body.className = "body";
-  body.textContent = text || "";
-  wrap.append(label, body);
+  if (who === "a" && !o.error) { body.innerHTML = markdownHtml(text); bindCopyButtons(body); }
+  else body.textContent = text || "";
+  wrap.append(head, body);
   if (o.files && o.files.length) {
     const row = document.createElement("div");
     row.className = "files";
@@ -2406,6 +2548,15 @@ function addMsg(who, text, opts) {
       row.appendChild(chip);
     });
     wrap.appendChild(row);
+  }
+  if (o.retry) {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "btn sm retry";
+    retry.textContent = "Try again";
+    retry.setAttribute("aria-label", "Try the last message again");
+    retry.addEventListener("click", o.retry);
+    wrap.appendChild(retry);
   }
   (chatInner || chatLog).appendChild(wrap);
   paintChatEmpty();
@@ -2419,8 +2570,16 @@ function paintChatEmpty() {
   if (e) e.hidden = !!(chatInner && chatInner.childElementCount);
 }
 
-function chatNote(kind, text) {
-  return addMsg("a", text, { label: kind === "error" ? "Error" : "Octop", error: kind === "error" });
+function chatNote(kind, text, opts) {
+  if (kind === "error") setChatStatus("error", "Error");
+  return addMsg("a", text, { ...(opts || {}), label: kind === "error" ? "Error" : "Octop", error: kind === "error" });
+}
+
+function retryLastMessage() {
+  if (!CHAT.lastRequest || CHAT.busy || !chatInput) return;
+  chatInput.value = CHAT.lastRequest.text;
+  composerGrow();
+  sendMessage();
 }
 
 /**
@@ -2452,7 +2611,7 @@ function toolBlock() {
   wrap.className = "tooldetail";
   const sum = document.createElement("summary");
   const label = document.createElement("span");
-  label.textContent = "Working…";
+  label.textContent = "Running commands";
   const list = document.createElement("div");
   list.className = "tlist";
   sum.appendChild(label);
@@ -2463,30 +2622,48 @@ function toolBlock() {
   const rows = new Map();
   return {
     add(call) {
-      rows.set(call.id, call);
       const row = document.createElement("div");
-      row.className = "trow";
+      row.className = "trow now";
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      const state = document.createElement("span");
+      state.className = "tstate";
+      state.textContent = "…";
       const n = document.createElement("span");
       n.className = "tname";
       n.textContent = friendlyTool(call.name);
       const a = document.createElement("span");
       a.className = "targ";
       a.textContent = call.label || "";
-      row.append(n, a);
+      const detail = document.createElement("pre");
+      detail.className = "tdetail";
+      detail.textContent = call.args ? JSON.stringify(call.args, null, 2) : "";
+      row.append(state, n, a, detail);
+      const toggle = () => row.classList.toggle("open");
+      row.addEventListener("click", toggle);
+      row.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+      rows.set(call.id, { call, row });
       list.appendChild(row);
-      label.textContent = "Used " + rows.size + (rows.size === 1 ? " action" : " actions");
+      label.textContent = "Running " + rows.size + (rows.size === 1 ? " command" : " commands");
       chatScroll();
     },
-    done(id, ok, note) {
-      const row = rows.get(id) && list.querySelector(".trow:last-child");
-      if (row) row.classList.add(ok ? "ok" : "fail");
-      if (note) {
-        const a = row && row.querySelector(".targ");
-        if (a) a.textContent += ok ? "  ✓" : "  — " + note;
+    done(id, ok, note, result) {
+      const record = rows.get(id);
+      const row = record && record.row;
+      if (row) {
+        row.classList.remove("now");
+        row.classList.add(ok ? "ok" : "fail");
+        const state = row.querySelector(".tstate");
+        if (state) state.textContent = ok ? "✓" : "×";
+        const detail = row.querySelector(".tdetail");
+        if (detail && (result || note)) detail.textContent += "\n\n" + JSON.stringify(result || note, null, 2);
       }
       chatScroll();
     },
-    finish() { if (!rows.size) wrap.remove(); },
+    finish() {
+      if (!rows.size) wrap.remove();
+      else { label.textContent = "Ran " + rows.size + (rows.size === 1 ? " command" : " commands"); wrap.open = false; }
+    },
   };
 }
 
@@ -2506,12 +2683,68 @@ function composerGrow() {
   chatInput.style.height = Math.min(Math.max(chatInput.scrollHeight, 24), 200) + "px";
 }
 
+const CHAT_COMMANDS = [
+  ["/new", "Start a new session", () => sesStartNew()],
+  ["/clear", "Clear the visible conversation", () => { chatInner.textContent = ""; paintChatEmpty(); }],
+  ["/model", "Change the active model", () => openChangeModel()],
+  ["/help", "Show keyboard shortcuts", () => chatNote("info", "Enter send · Shift+Enter newline · Esc stop · Up/Down history")],
+];
+
+function chatHistoryLoad() {
+  try { CHAT.history = JSON.parse(localStorage.getItem("octop:chat-input-history") || "[]").filter(Boolean).slice(-30); }
+  catch { CHAT.history = []; }
+}
+function chatHistorySave(text) {
+  if (!text || (CHAT.history[CHAT.history.length - 1] === text)) return;
+  CHAT.history.push(text);
+  CHAT.history = CHAT.history.slice(-30);
+  try { localStorage.setItem("octop:chat-input-history", JSON.stringify(CHAT.history)); } catch { /* private mode */ }
+}
+function paintCommands() {
+  const menu = $("commandMenu");
+  if (!menu || !chatInput) return;
+  const value = chatInput.value;
+  const open = value.startsWith("/") && !value.includes(" ");
+  menu.hidden = !open;
+  if (!open) return;
+  const query = value.toLowerCase();
+  menu.textContent = "";
+  CHAT_COMMANDS.filter(c => c[0].startsWith(query) || !query).forEach((command, i) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", i === 0 ? "true" : "false");
+    button.dataset.command = command[0];
+    button.textContent = command[0] + "  " + command[1];
+    button.addEventListener("mousedown", e => { e.preventDefault(); runCommand(command[0]); });
+    menu.appendChild(button);
+  });
+}
+function hideCommands() { const menu = $("commandMenu"); if (menu) menu.hidden = true; }
+function runCommand(value) {
+  const found = CHAT_COMMANDS.find(c => c[0] === value);
+  if (!found) return false;
+  hideCommands();
+  chatInput.value = "";
+  composerGrow();
+  found[2]();
+  return true;
+}
+function showChatNetwork(on) { const banner = $("chatNetwork"); if (banner) banner.hidden = !on; }
+function setChatStatus(kind, text) {
+  const dot = $("ocStatusDot");
+  const status = $("ocStatusText");
+  if (dot) dot.className = "status-dot" + (kind === "working" ? " work" : kind === "error" ? " err" : "");
+  if (status) status.textContent = text || (kind === "working" ? "Working" : kind === "error" ? "Error" : "Ready");
+}
+
 function setChatBusy(on, runId) {
   CHAT.busy = !!on;
   if (runId) CHAT.runId = runId;
   if (chatSend) chatSend.hidden = !!on;
   if (chatStop) chatStop.hidden = !on;
   if (chatInput) chatInput.placeholder = on ? "Agent is working — press ■ to stop" : "Message your agent…";
+  setChatStatus(on ? "working" : "ready", on ? "Working" : "Ready");
   if (chatMeta) paintChatMeta();
 }
 
@@ -2528,22 +2761,20 @@ function paintChatWorking() {
 }
 
 function paintChatMeta() {
-  if (!chatMeta) return;
   paintChatWorking();
   const p = activeProfile();
   const pv = providerOf(p);
-  chatMeta.textContent = "";
   if (!p) {
-    // the row underneath already offers "+ Add AI", so keep this quiet
-    const b = document.createElement("span");
-    b.textContent = "No AI set up yet.";
-    chatMeta.appendChild(b);
+    const modelChip = $("chatModelChipText");
+    if (modelChip) modelChip.textContent = "Model";
     const m0 = $("ocModel"); if (m0) m0.textContent = "no model chosen";
     const pr0 = $("ocProvider"); if (pr0) pr0.textContent = "";
     return;
   }
   const model = p.model || (pv && pv.model) || "";
   const name = model ? modelMeta(model).name : "no model chosen";
+  const modelChip = $("chatModelChipText");
+  if (modelChip) modelChip.textContent = name;
   const head = document.createElement("button");
   head.type = "button";
   head.className = "aihead";
@@ -2562,7 +2793,10 @@ function paintChatMeta() {
   const st = document.createElement("span");
   st.className = "aist" + (CHAT.busy ? " on" : "");
   st.textContent = CHAT.busy ? "working…" : "";
-  chatMeta.append(head, via, st);
+  if (chatMeta) {
+    chatMeta.textContent = "";
+    chatMeta.append(head, via, st);
+  }
   /* the OpenCode status line mirrors the same facts at the bottom of the chat */
   const ocModel = $("ocModel");
   const ocProvider = $("ocProvider");
@@ -2659,7 +2893,9 @@ async function attachFiles(fileList) {
 
 async function sendMessage() {
   if (CHAT.busy || !chatInput) return;
+  if (VOICE.on) voiceStop();
   const text = chatInput.value.trim();
+  if (text.startsWith("/") && runCommand(text)) return;
   const files = CHAT.attachments.filter(a => !a.error);
   const broken = CHAT.attachments.filter(a => a.error);
   if (!text && !files.length) {
@@ -2670,6 +2906,10 @@ async function sendMessage() {
     chatNote("error", broken.length + " file(s) could not be attached: " +
       broken.map(b => b.name + " — " + b.error).join("; "));
   }
+
+  CHAT.lastRequest = { text };
+  chatHistorySave(text);
+  CHAT.historyIndex = -1;
 
   addMsg("u", text, { files: files.map(f => ({ name: f.name, kind: f.kind })) });
   chatInput.value = "";
@@ -2765,7 +3005,7 @@ async function sendMessage() {
           } else if (ev.type === "tool_call") {
             tools.add(ev);
           } else if (ev.type === "tool_result") {
-            tools.done(ev.id, ev.ok, ev.ok ? "" : ev.error);
+            tools.done(ev.id, ev.ok, ev.ok ? "" : ev.error, ev.result);
           }
           runApply(ev);
         }
@@ -2776,6 +3016,7 @@ async function sendMessage() {
     else {
       errored = true;
       actPush("error");
+      setChatStatus("error", "Error");
       /* A spent allowance is not something the user can wait out, and a model
          the provider will not serve to this application is not something a
          different key fixes. Both need the one action that actually unblocks
@@ -2790,9 +3031,10 @@ async function sendMessage() {
           + (e.model ? "  (" + e.model + ")" : ""));
         switchModelLink();
       } else {
-        chatNote("error", String((e && e.message) || e));
+        chatNote("error", String((e && e.message) || e), { retry: (e && e.retryable) || e instanceof TypeError ? retryLastMessage : null });
         if (e && e.retryable) switchModelLink("Try again, or use another model");
       }
+      if (e instanceof TypeError) showChatNetwork(true);
     }
   } finally {
     // whatever happened, the session knows: running, done, stopped or failed
@@ -2827,6 +3069,7 @@ async function sendMessage() {
     }
     CHAT.abort = null;
     setChatBusy(false);
+    if (errored) setChatStatus("error", "Error");
     // the run id stays: it is what makes this session reattachable
     // uploads are scratch space; do not leave them behind
     for (const a of CHAT.attachments) if (a.id) API.del("/api/agent/attach?id=" + encodeURIComponent(a.id)).catch(() => {});
@@ -2841,12 +3084,55 @@ async function stopRun() {
 }
 
 function wireChat() {
+  const title = $("chatSessionTitle");
+  if (title) title.addEventListener("click", () => {
+    const current = sessActive();
+    const next = window.prompt("Session name", current.title || sessTitleOf(current.hist) || "");
+    if (next === null) return;
+    current.title = String(next).trim().slice(0, 80) || sessTitleOf(current.hist) || "Untitled session";
+    current.updatedAt = Date.now();
+    sessCommit();
+    paintSessions();
+  });
+  if ($("chatCloseFloat")) $("chatCloseFloat").addEventListener("click", () => {
+    if (CHAT.host && CHAT.host !== "page") closeFloat(CHAT.host);
+  });
+  if ($("chatModelChip")) $("chatModelChip").addEventListener("click", openChangeModel);
   if (chatInput) {
-    chatInput.addEventListener("input", composerGrow);
+    chatHistoryLoad();
+    chatInput.addEventListener("input", () => { composerGrow(); paintCommands(); });
+    chatInput.addEventListener("compositionstart", () => { CHAT.composing = true; });
+    chatInput.addEventListener("compositionend", () => { CHAT.composing = false; paintCommands(); });
     chatInput.addEventListener("keydown", e => {
+      if (CHAT.composing || e.isComposing) return;
+      if (e.key === "Escape") { e.preventDefault(); hideCommands(); if (VOICE.on) voiceStop(); if (CHAT.busy) stopRun(); return; }
+      if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !chatInput.value) {
+        e.preventDefault();
+        if (!CHAT.history.length) return;
+        CHAT.historyIndex = e.key === "ArrowUp"
+          ? Math.max(0, CHAT.historyIndex < 0 ? CHAT.history.length - 1 : CHAT.historyIndex - 1)
+          : Math.min(CHAT.history.length - 1, CHAT.historyIndex < 0 ? 0 : CHAT.historyIndex + 1);
+        chatInput.value = CHAT.history[CHAT.historyIndex] || "";
+        composerGrow();
+        return;
+      }
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
     });
   }
+  if (chatLog) chatLog.addEventListener("scroll", () => {
+    CHAT.pinned = chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 36;
+    chatScroll();
+  }, { passive: true });
+  if ($("chatLatest")) $("chatLatest").addEventListener("click", () => { CHAT.pinned = true; chatScroll(true); });
+  document.querySelectorAll("[data-prompt]").forEach(button => button.addEventListener("click", () => {
+    chatInput.value = button.dataset.prompt || "";
+    composerGrow();
+    chatInput.focus();
+  }));
+  if ($("chatReconnect")) $("chatReconnect").addEventListener("click", () => {
+    showChatNetwork(false);
+    runResume().catch(() => showChatNetwork(true));
+  });
   if (chatSend) chatSend.addEventListener("click", sendMessage);
   if (chatStop) chatStop.addEventListener("click", stopRun);
   if ($("atBtn")) {
@@ -2861,6 +3147,7 @@ function wireChat() {
   }
   paintAttachments();
   paintChatMeta();
+  if ($("chatCloseFloat")) $("chatCloseFloat").hidden = CHAT.host === "page" || !CHAT.host;
   wireAddAi();
   wireActivity();
   wireAutomation();
@@ -2890,6 +3177,7 @@ function wireChat() {
       ? "Reconnected to the run that was still going."
       : "Session restored.");
   }).catch(() => { /* the conversation is on screen either way */ });
+  if (chatInput) { chatInput.focus(); composerGrow(); }
 }
 /* ---------------- screencast stream ---------------- */
 const castImg = document.getElementById("castImg");
@@ -4877,6 +5165,7 @@ function openFloat(host) {
 function closeFloat(host) {
   const win = FLOAT.windows.get(host);
   if (!win) return;
+  if (CHAT.host === host && VOICE.on) voiceStop();
   win.open = false;
   win.el.hidden = true;
   floatCloseMenu();
@@ -4958,6 +5247,8 @@ function mountChat(host) {
     : (FLOAT.windows.get(host) && FLOAT.windows.get(host).open ? FLOAT.windows.get(host).body : home);
   if (chat.parentNode !== target) target.appendChild(chat);
   CHAT.host = host === "page" ? "page" : host;
+  const close = $("chatCloseFloat");
+  if (close) close.hidden = CHAT.host === "page";
   composerGrow();
   chatScroll();
   paintChatMeta();
@@ -5921,9 +6212,7 @@ function sesShow() {
 function sesStartNew() {
   if (!sesIdle()) return;
   const s = sessActive();
-  // a conversation nobody said anything in is not worth a row in the list
-  if (!s.hist.length) { paintSessions(); return; }
-  histSave();
+  if (s.hist.length) histSave();
   sessionNew();
   histLoad();
   sesShow();
@@ -5969,15 +6258,53 @@ function sesWipe() {
   for (const id of ids) API.post("/api/agent/forget", { sessionId: id }).catch(() => {});
 }
 
-/** the sessions worth showing: a record nobody ever said anything in is not a
- *  conversation, and a row for it would be a row that can only be deleted */
+/** Show the active draft too, so New Session has immediate visible feedback. */
 function sesShown() {
-  return SESS.list.filter(s => s.title || ((s.hist || []).length));
+  const shown = SESS.list.filter(s => s.title || ((s.hist || []).length));
+  const current = sessActive();
+  const id = current.id;
+  const draft = SESS_DRAFT && SESS_DRAFT.id === id && !sessFind(id) ? SESS_DRAFT : null;
+  return draft ? [draft, ...shown] : shown;
+}
+
+function paintSessionTabs(shown, active) {
+  const strip = $("chatSessionTabs");
+  if (!strip) return;
+  const newTab = $("chatNew");
+  strip.textContent = "";
+  for (const s of shown) {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = "chat-session-tab" + (s.id === active ? " active" : "");
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-selected", s.id === active ? "true" : "false");
+    tab.title = s.title || "Chat Session";
+    const label = document.createElement("span");
+    label.textContent = s.title || "Chat Session";
+    tab.appendChild(label);
+    const close = document.createElement("span");
+    close.className = "tab-close";
+    close.textContent = "×";
+    close.setAttribute("aria-label", "Close session tab");
+    close.addEventListener("click", e => {
+      e.stopPropagation();
+      if (s.id === sessionId() && !s.hist.length) { sessionForget(); histLoad(); sesShow(); return; }
+      sesDelete(s.id);
+    });
+    tab.appendChild(close);
+    tab.addEventListener("click", () => sesOpen(s.id));
+    strip.appendChild(tab);
+  }
+  if (newTab) {
+    strip.appendChild(newTab);
+    newTab.onclick = () => sesStartNew();
+  }
 }
 
 function paintSessions() {
   const active = sessionId();
   const shown = sesShown();
+  paintSessionTabs(shown, active);
   for (const list of [$("sesList"), $("ocSesList")]) {
     if (!list) continue;
     list.textContent = "";
@@ -6015,7 +6342,21 @@ function paintSessions() {
         e.stopPropagation();
         if (confirm('Delete "' + (s.title || "empty session") + '"?')) sesDelete(s.id);
       });
-      acts.appendChild(del);
+      const menu = document.createElement("button");
+      menu.className = "ses-del";
+      menu.type = "button";
+      menu.textContent = "⋯";
+      menu.title = "Rename this session";
+      menu.setAttribute("aria-label", "Rename " + (s.title || "session"));
+      menu.addEventListener("click", e => {
+        e.stopPropagation();
+        const next = window.prompt("Session name", s.title || "");
+        if (next === null) return;
+        s.title = String(next).trim().slice(0, 80) || sessTitleOf(s.hist) || "Untitled session";
+        s.updatedAt = Date.now();
+        sessCommit();
+      });
+      acts.append(menu, del);
 
       row.append(meta, acts);
       row.addEventListener("click", () => sesOpen(s.id));
@@ -6029,7 +6370,9 @@ function paintSessions() {
   }
   const open = sessFind(active);
   const bar = $("sesName");
-  if (bar) bar.textContent = (open && open.title) || "New session";
+  if (bar) bar.textContent = open && open.title ? open.title : "";
+  const title = $("chatSessionTitle");
+  if (title) title.textContent = (open && open.title) || "Chat Session";
   paintChatMeta();
   const count = $("sesCount");
   if (count) count.textContent = shown.length + (shown.length === 1 ? " session" : " sessions");
@@ -6038,7 +6381,7 @@ function paintSessions() {
 }
 
 function wireSessions() {
-  for (const id of ["sesNew", "sesNewTop", "sesNew2"]) {
+  for (const id of ["sesNew"]) {
     const b = $(id);
     if (b) b.addEventListener("click", () => sesStartNew());
   }
@@ -6675,7 +7018,11 @@ function wireActivity() {
 
 /* resolved on demand, so a late-loading polyfill still works */
 const voiceCtor = () => window.SpeechRecognition || window.webkitSpeechRecognition || null;
-const VOICE = { rec: null, on: false, busy: false };
+const VOICE = { rec: null, on: false, busy: false, baseValue: "", baseStart: 0, finalText: "", interimText: "" };
+const VOICE_LANG_KEY = "octop:voice-language";
+function voiceLanguage() {
+  try { return localStorage.getItem(VOICE_LANG_KEY) || "id-ID"; } catch { return "id-ID"; }
+}
 
 function voiceSupported() { return !!voiceCtor(); }
 
@@ -6693,63 +7040,69 @@ function voicePaint() {
   if (!b) return;
   b.classList.toggle("on", VOICE.on);
   b.classList.toggle("busy", VOICE.busy);
-  b.title = VOICE.on ? "Stop listening" : "Speak instead of typing";
+  b.title = VOICE.on ? "Stop listening (Ctrl+Shift+M)" : "Start voice input (Ctrl+Shift+M)";
+  b.setAttribute("aria-label", VOICE.on ? "Stop voice input" : "Start voice input");
   b.setAttribute("aria-pressed", VOICE.on ? "true" : "false");
 }
 
 function voiceStop() {
   VOICE.on = false;
   try { if (VOICE.rec) VOICE.rec.stop(); } catch (e) { /* already stopped */ }
+  VOICE.rec = null;
   voicePaint();
 }
 
 function voiceStart() {
   if (!voiceSupported()) {
-    voiceSay("Voice input isn't supported by this browser — typing works as usual.", "bad");
+    voiceSay("Browser ini tidak mendukung input suara. Gunakan ketik seperti biasa.", "bad");
     return;
   }
   if (VOICE.on) { voiceStop(); voiceSay(""); return; }
+  if (!window.isSecureContext && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+    voiceSay("Input suara membutuhkan HTTPS atau akses lewat localhost.", "bad");
+    return;
+  }
 
   let rec;
   try { rec = new (voiceCtor())(); }
   catch (e) {
-    voiceSay("Microphone unavailable in this browser.", "bad");
+    voiceSay("Mikrofon tidak tersedia di browser ini.", "bad");
     return;
   }
   VOICE.rec = rec;
-  rec.lang = (navigator.language || "en-US");
+  rec.lang = voiceLanguage();
   rec.interimResults = true;
   rec.continuous = false;
   rec.maxAlternatives = 1;
 
-  let finalText = "";
+  VOICE.finalText = "";
+  VOICE.interimText = "";
+  const input = $("chatInput");
+  VOICE.baseValue = input ? input.value : "";
+  VOICE.baseStart = input ? input.selectionStart : VOICE.baseValue.length;
   const put = text => {
     if (!text) return;
-    const input = $("chatInput");
     if (!input) return;
-    const existing = input.value;
-    input.value = existing ? (existing.replace(/\s+$/, "") + " " + text) : text;
+    const before = VOICE.baseValue.slice(0, VOICE.baseStart);
+    const after = VOICE.baseValue.slice(VOICE.baseStart);
+    input.value = before + text + after;
+    const pos = before.length + text.length;
+    input.setSelectionRange(pos, pos);
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.focus();
   };
 
-  rec.onstart = () => { VOICE.on = true; VOICE.busy = false; voicePaint(); voiceSay("Listening…"); };
+  rec.onstart = () => { VOICE.on = true; VOICE.busy = false; voicePaint(); voiceSay("Mendengarkan…"); };
 
   rec.onresult = ev => {
     let interim = "";
     for (let i = ev.resultIndex; i < ev.results.length; i++) {
       const r = ev.results[i];
-      if (r.isFinal) finalText += (finalText ? " " : "") + r[0].transcript.trim();
+      if (r.isFinal) VOICE.finalText += (VOICE.finalText ? " " : "") + r[0].transcript.trim();
       else interim += r[0].transcript;
     }
-    if (interim && !finalText) {
-      // show the live words, but do not commit them into the field yet
-      const input = $("chatInput");
-      const committed = finalText ? (finalText + " ") : "";
-      if (input) {
-        input.dataset.voicePreview = "1";
-        put(interim.trim() + (finalText ? "" : ""));
-      }
+    if (interim) {
+      VOICE.interimText = interim.trim();
       VOICE.busy = false;
       voicePaint();
     }
@@ -6761,15 +7114,15 @@ function voiceStart() {
     voicePaint();
     const why = String(ev.error || "");
     if (why === "not-allowed" || why === "service-not-allowed") {
-      voiceSay("Microphone permission denied. Allow it in the address bar, or just type.", "bad");
+      voiceSay("Izin mikrofon ditolak. Izinkan mikrofon dari ikon kunci di bilah alamat.", "bad");
     } else if (why === "no-speech") {
-      voiceSay("Didn't catch anything — try again.", "bad");
+      voiceSay("Tidak ada ucapan yang tertangkap. Coba lagi.", "bad");
     } else if (why === "network") {
-      voiceSay("Speech recognition needs a network connection that this browser allows.", "bad");
+      voiceSay("Pengenalan suara membutuhkan koneksi internet.", "bad");
     } else if (why === "aborted") {
       voiceSay("");
     } else {
-      voiceSay("Microphone unavailable (" + why + ").", "bad");
+      voiceSay(why === "audio-capture" ? "Tidak ada perangkat mikrofon yang tersedia." : "Mikrofon tidak tersedia. Coba perangkat lain.", "bad");
     }
   };
 
@@ -6777,23 +7130,27 @@ function voiceStart() {
     VOICE.on = false;
     VOICE.busy = false;
     voicePaint();
-    if (finalText) {
-      put(finalText.trim());
+    if (VOICE.finalText) {
+      put((VOICE.finalText + (VOICE.interimText ? " " + VOICE.interimText : "")).trim());
       voiceSay("");
-    } else if (VOICE.busy) {
-      voiceSay("Transcribing…");
+    } else if (VOICE.busy || VOICE.interimText) {
+      voiceSay("Memproses suara…");
     }
-    delete $("chatInput").dataset.voicePreview;
+    VOICE.rec = null;
   };
 
   try {
     rec.start();
+    VOICE.on = true;
     VOICE.busy = true;
     voicePaint();
-    voiceSay("Listening…");
+    voiceSay("Mendengarkan…");
   } catch (e) {
     VOICE.on = false;
-    voiceSay("Microphone unavailable in this browser.", "bad");
+    VOICE.busy = false;
+    VOICE.rec = null;
+    voicePaint();
+    voiceSay("Mikrofon tidak tersedia di browser ini.", "bad");
   }
 }
 
@@ -6804,8 +7161,12 @@ function wireVoice() {
   b.addEventListener("click", voiceStart);
   if (!voiceSupported()) {
     b.disabled = true;
-    b.title = "Voice input isn't supported by this browser";
+    b.title = "Voice input is not supported by this browser";
+    b.setAttribute("aria-label", "Voice input is not supported by this browser");
   }
+  document.addEventListener("keydown", e => {
+    if (e.ctrlKey && e.shiftKey && String(e.key).toLowerCase() === "m") { e.preventDefault(); voiceStart(); }
+  });
   voicePaint();
 }
 
@@ -7293,6 +7654,8 @@ function paintAppearance() {
   fillSelect("setSize", SIZES, readStore(SIZE_KEY, "md"));
   fillSelect("setDensity", DENSITIES, readStore(DENSITY_KEY, "cozy"));
   fillSelect("setMotion", MOTIONS, readStore(MOTION_KEY, "system"));
+  const voice = $("setVoiceLang");
+  if (voice) voice.value = readStore(VOICE_LANG_KEY, "id-ID");
   fillSelect("setBgMode", BG_MODES, readStore(BG_MODE_KEY, "default"));
   fillSelect("setBgPreset", BG_PRESETS.map(p => [p[0], p[1]]), readStore(BG_PRESET_KEY, "midnight"));
   const bgA = $("setBgA"), bgB = $("setBgB"), bgAng = $("setBgAngle"), glass = $("setGlass");
@@ -7363,6 +7726,10 @@ if ($("agForm")) {
     if (e.key === "s" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveProfile(); }
   });
 }
+
+if ($("setVoiceLang")) $("setVoiceLang").addEventListener("change", e => {
+  writeStore(VOICE_LANG_KEY, e.target.value === "en-US" ? "en-US" : "id-ID");
+});
 
 /* appearance controls
    One shape for all of them: the change applies, it is remembered, and the

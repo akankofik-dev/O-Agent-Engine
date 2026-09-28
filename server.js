@@ -14,7 +14,7 @@
  *     4. executes browser actions over  POST /api/browser/action
  *     5. proxies AI chat to ANY OpenAI-compatible endpoint over
  *        POST /api/ai/chat  (avoids browser CORS, keeps the key server-side)
- *     6. runs a real interactive shell over WS /api/shell (a live cmd.exe)
+ *     6. runs a real interactive shell over WS /api/shell
  *
  *   This is deliberately independent of hermes — nothing here talks to it.
  * ========================================================================= */
@@ -55,6 +55,11 @@ const DASHBOARD = path.join(ROOT, 'dashboard.html');
 const QUALITY = clamp(Number(process.env.QUALITY || 78), 20, 100);
 const MAX_FRAME_W = Number(process.env.MAX_W || 1600);
 const MAX_FRAME_H = Number(process.env.MAX_H || 1000);
+const IS_WINDOWS = process.platform === 'win32';
+const SHELL_FILE = IS_WINDOWS ? (process.env.COMSPEC || 'cmd.exe') : (process.env.SHELL || '/bin/bash');
+const SHELL_NAME = path.basename(SHELL_FILE);
+const HEADLESS = process.env.HEADLESS === '1'
+  || (!IS_WINDOWS && process.platform !== 'darwin' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY);
 
 const PROFILE = process.env.CHROME_PROFILE || path.join(os.homedir(), '.octop-browser-profile');
 
@@ -155,23 +160,18 @@ function resolveBrowser() {
   }
   if (bundled) return bundled;
 
-  // 3. whatever the machine has, so a fresh clone still starts
-  const pf = process.env['PROGRAMFILES'] || 'C:\\Program Files';
-  const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
-  const local = process.env['LOCALAPPDATA'] || '';
-  const cands = [
-    path.join(pf, 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    path.join(pf86, 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    path.join(local, 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    path.join(pf86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-    path.join(pf, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
-    '/usr/bin/google-chrome',
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/snap/bin/chromium',
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  ].filter(Boolean);
+  // 3. fall back to browsers installed by the operating system
+  const cands = IS_WINDOWS
+    ? [
+      path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+      path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    ]
+    : process.platform === 'darwin'
+      ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
+      : ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium'];
   for (const c of cands) {
     try { if (fs.existsSync(c)) return { path: c, source: 'system', version: null }; } catch { /* ignore */ }
   }
@@ -232,6 +232,7 @@ function launchChrome() {
     '--disable-ipc-flooding-protection',
     '--window-size=1280,860',
     '--window-position=40,40',
+    ...(HEADLESS ? ['--headless=new'] : []),
     'about:blank',
   ];
 
@@ -280,7 +281,7 @@ function killChrome() {
   // Only ever the process this server started. A system browser belongs to the
   // person using the machine, and killing that would close their own windows.
   try {
-    if (process.platform === 'win32') {
+    if (IS_WINDOWS) {
       spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
         .on('error', () => {});
     } else {
@@ -1642,7 +1643,29 @@ function readBody(req, limit = 8 * 1024 * 1024) {
 async function handleApi(req, res, pathname) {
   if (!originAllowed(req)) return sendJson(res, 403, { error: 'origin not allowed' });
 
-  if (pathname === '/api/health') return sendJson(res, 200, { ok: true, uptime: process.uptime() });
+  if (pathname === '/api/health') {
+    return sendJson(res, 200, {
+      ok: true,
+      service: 'octop-browser-automation',
+      uptime: process.uptime(),
+      browser: {
+        connected: STATE.connected,
+        launchedByUs: STATE.launchedByUs,
+        version: STATE.version,
+        port: CDP_PORT,
+      },
+    });
+  }
+
+  if (pathname === '/api/ready') {
+    const ready = STATE.connected && !!activeSession();
+    return sendJson(res, ready ? 200 : 503, {
+      ok: ready,
+      service: 'octop-browser-automation',
+      browserConnected: STATE.connected,
+      activeTab: !!activeSession(),
+    });
+  }
 
   if (pathname === '/api/browser/status' && req.method === 'GET') {
     const st = statusObject();
@@ -2188,6 +2211,18 @@ function agentController(profile, emit) {
  */
 const SHELL_OUT_CAP = 8 * 1024 * 1024;
 
+function killProcessTree(child) {
+  if (!child || !child.pid) return;
+  try {
+    if (IS_WINDOWS) {
+      execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    } else {
+      try { process.kill(-child.pid, 'SIGTERM'); }
+      catch { process.kill(child.pid, 'SIGTERM'); }
+    }
+  } catch { try { child.kill(); } catch { /* already gone */ } }
+}
+
 function shellExec(command, timeoutMs) {
   const cmd = String(command || '').trim();
   if (!cmd) throw new Error('command required');
@@ -2196,8 +2231,8 @@ function shellExec(command, timeoutMs) {
 
   // One argument, handed to the shell this machine actually has. A hardcoded
   // cmd.exe is not portability, it is an ENOENT on every other platform.
-  const win = process.platform === 'win32';
-  const file = win ? (process.env.COMSPEC || 'cmd.exe') : '/bin/sh';
+  const win = IS_WINDOWS;
+  const file = SHELL_FILE;
   const args = win ? ['/d', '/s', '/c', cmd] : ['-c', cmd];
 
   return new Promise((resolve) => {
@@ -2252,8 +2287,8 @@ function shellExec(command, timeoutMs) {
        outlive its own deadline. */
     const killer = setTimeout(() => {
       timedOut = true;
-      try { if (win) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }); } catch { /* gone already */ }
-      try { child.kill('SIGKILL'); } catch { /* gone already */ }
+      if (win) killProcessTree(child);
+      else { try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone already */ } } }
     }, ms);
     if (typeof killer.unref === 'function') killer.unref();
 
@@ -2487,8 +2522,9 @@ const server = http.createServer((req, res) => {
  *  Shell — a real interactive shell over WS /api/shell                    *
  * ====================================================================== */
 
-/** the OEM code page cmd.exe speaks (measured once at boot; 437 on this box) */
+/** Windows cmd.exe speaks an OEM code page; POSIX shells use UTF-8. */
 function detectCodePage() {
+  if (!IS_WINDOWS) return 65001;
   try {
     const out = String(execFileSync('cmd.exe', ['/c', 'chcp'], { encoding: 'utf8', windowsHide: true }));
     const m = out.match(/\d{2,5}/g);
@@ -2567,10 +2603,9 @@ function splitUtf8Tail(buf) {
 
 const shellSessions = new Set();
 
-/** One live shell process bound to one WS connection. cmd.exe is started as
- *  `cmd /Q /K "prompt \x01$P\x01$G"`: echo off (we render the command line
- *  ourselves) and a sentinel prompt so the current directory is readable from
- *  the byte stream without any extra round trip. */
+/** One live shell process bound to one WS connection. Windows uses cmd's
+ *  sentinel prompt; POSIX uses bash's PROMPT_COMMAND to emit the same marker.
+ */
 class ShellSession {
   constructor(conn, cwd) {
     this.conn = conn;
@@ -2613,8 +2648,14 @@ class ShellSession {
 
     let proc;
     try {
-      proc = spawn('cmd.exe', ['/Q', '/K', 'prompt \x01$P\x01$G'], {
-        cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: process.env,
+      const args = IS_WINDOWS ? ['/Q', '/K', 'prompt \x01$P\x01$G'] : ['--noprofile', '--norc', '-i'];
+      const env = IS_WINDOWS ? process.env : {
+        ...process.env,
+        PS1: '',
+        PROMPT_COMMAND: 'printf "\\001%s\\001>" "$PWD"',
+      };
+      proc = spawn(SHELL_FILE, args, {
+        cwd, detached: !IS_WINDOWS, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env,
       });
     } catch (e) {
       this.sendMsg({ type: 'fatal', error: String((e && e.message) || e) });
@@ -2639,7 +2680,7 @@ class ShellSession {
       this.sendMsg({ type: 'exited', code, signal: signal || null });
     });
 
-    this.sendMsg({ type: 'started', cwd, pid: proc.pid, shell: 'cmd.exe', cp: CODE_PAGE });
+    this.sendMsg({ type: 'started', cwd, pid: proc.pid, shell: SHELL_NAME, cp: CODE_PAGE });
     log(`shell started (pid ${proc.pid}, cwd ${cwd}, cp ${CODE_PAGE})`);
   }
 
@@ -2650,8 +2691,8 @@ class ShellSession {
     this.proc = null;
     if (!proc) return;
     try {
-      execFileSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-    } catch { try { proc.kill(); } catch { /* already gone */ } }
+      killProcessTree(proc);
+    } catch { /* already gone */ }
   }
 
   /** Ctrl+C cannot interrupt a piped console, so stop the whole tree and
@@ -2663,8 +2704,8 @@ class ShellSession {
     const proc = this.proc;
     if (!proc) { this.start(); return; }
     try {
-      execFileSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-    } catch { try { proc.kill(); } catch { /* ignore */ } }
+      killProcessTree(proc);
+    } catch { /* ignore */ }
   }
 
   command(text) {
@@ -2673,7 +2714,8 @@ class ShellSession {
       return;
     }
     try {
-      this.proc.stdin.write(Buffer.concat([codec(String(text ?? '')), Buffer.from('\r\n')]));
+      const newline = IS_WINDOWS ? '\r\n' : '\n';
+      this.proc.stdin.write(Buffer.concat([codec(String(text ?? '')), Buffer.from(newline)]));
     } catch (e) {
       this.sendMsg({ type: 'error', message: 'could not write to the shell: ' + e.message });
     }
@@ -2884,7 +2926,7 @@ async function main() {
     : 'NONE — run: node scripts/get-browser.js'));
   log('  chrome    : ' + (STATE.version || 'unknown'));
   log('  profile   : ' + PROFILE);
-  log('  shell     : WS /api/shell  (cmd.exe, code page ' + CODE_PAGE + ')');
+  log('  shell     : WS /api/shell  (' + SHELL_NAME + ', code page ' + CODE_PAGE + ')');
   log('  config    : ' + aiStore.FILE);
   log('  providers : ' + (cfg.providers.length || 'none — add one in Settings'));
   log('  agent     : ' + (active
