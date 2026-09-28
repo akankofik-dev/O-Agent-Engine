@@ -230,13 +230,14 @@ const TOOLS = [
       'Propose a correction to one of your own operating rules.',
       'This does NOT change anything yet: the change waits until the user reads it and accepts it, and it is in force from then on. Never report a proposed rule as already in effect.',
       'Use it when a rule you were given is wrong, missing, or contradicts what this machine actually does — and say in the reason which rule and what made you think so.',
-      'You may only change name, description and instruction. You may NOT change what tools a rule grants (requires), and you may not invent new rules. Those are the user\'s to decide, not yours, because they are what decides what you are allowed to do.',
+      'You may only change name, description and instruction. You may NOT change what tools a rule grants (requires) — that is the user\'s to decide, not yours. To add a rule that does not exist yet, use rule_create instead.',
+      'This works on a rule you wrote with rule_create as well as on a shipped one, so if you get one wrong you can correct it rather than asking for a second one alongside it.',
       'A proposal for the same rule and field that is already waiting replaces it rather than adding a second.',
     ].join(' '),
     parameters: {
       type: 'object',
       properties: {
-        skillId: { type: 'string', description: 'The rule to change: browser-research, web-extraction, screenshot-analysis, coding or terminal.' },
+        skillId: { type: 'string', description: 'The rule to change: browser-research, web-extraction, screenshot-analysis, coding, terminal, or any rule id you created with rule_create.' },
         field: { type: 'string', enum: rules.EDITABLE, description: 'Which part of the rule to change.' },
         value: { type: 'string', description: 'The full replacement text for that part, not a diff and not an addition.' },
         reason: { type: 'string', description: 'Why the current text is wrong, in one or two sentences. An unexplained change is refused.' },
@@ -244,6 +245,37 @@ const TOOLS = [
       required: ['skillId', 'field', 'value', 'reason'], additionalProperties: false,
     },
     run: (ctx, a) => rules.propose(a, 'agent'),
+  },
+  {
+    name: 'rule_create',
+    caps: ['rules'],
+    description: [
+      'Propose a brand new operating rule, for a job you keep having to improvise and that the rules you were given do not cover.',
+      'Like rule_edit this does NOT change anything yet: the user reads it and accepts it. Never describe the rule as already in force.',
+      'requires is the list of capabilities the rule needs in order to be useful: browser, screenshot, dom, javascript, terminal, rules.',
+      'Ask only for what the instruction genuinely uses. A rule that asks for a capability the user has switched off is not refused — it is simply never run, and the page will show it as blocked, so asking for a capability you do not need buys you nothing and hides the ones you do.',
+      'Also note that an accepted rule still has to be switched on in a profile before it reaches you. Say so in your reply if you create one, rather than telling the user it is now active.',
+    ].join(' '),
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'A short slug for the new rule: lowercase letters, digits and dashes, starting with a letter, e.g. "invoice-chasing". This is not prose and is not shown to the user.' },
+        name: { type: 'string', description: 'Short human-readable name for the rule.' },
+        description: { type: 'string', description: 'One line: when this rule applies.' },
+        instruction: { type: 'string', description: 'The actual guidance, in the imperative, the way the existing rules are written.' },
+        requires: { type: 'array', items: { type: 'string' }, description: 'Capabilities this rule needs. Use only from: browser, screenshot, dom, javascript, terminal, rules. Use [] for a rule that only tells you how to work.' },
+        reason: { type: 'string', description: 'Why this rule is needed — what you could not do without it. An unexplained rule is refused.' },
+      },
+      required: ['id', 'name', 'description', 'instruction', 'requires', 'reason'], additionalProperties: false,
+    },
+    run: (ctx, a) => rules.propose({
+      kind: 'create',
+      skill: {
+        id: a.id, name: a.name, description: a.description,
+        instruction: a.instruction, requires: a.requires,
+      },
+      reason: a.reason,
+    }, 'agent'),
   },
 ];
 

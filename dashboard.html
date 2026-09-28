@@ -1128,6 +1128,9 @@ select option { background:var(--fn-bg-elevated); color:var(--fn-text-primary); 
 .skillcard .ds { font-size:11px; color:var(--fn-text-tertiary); line-height:1.45; margin-top:2px; }
 .skillcard .req { font-size:9.5px; font-weight:600; letter-spacing:.03em; padding:1px 5px; border-radius:3px;
   background:var(--fn-bg-code); color:var(--fn-text-tertiary); }
+/* a skill that cannot run must not sit in the same quiet grey as one that can */
+.skillcard .req.blocked { background:transparent; color:var(--fn-color-danger);
+  border:1px solid var(--fn-color-danger); font-weight:700; }
 .ctxbox { display:none; }
 .ctxbox.show { display:block; }
 .ctxbox pre { margin:8px 0 0; max-height:280px; overflow:auto; font-size:11.5px; line-height:1.5;
@@ -1897,6 +1900,11 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
 .ru-old b, .ru-new b { display:block; font-size:10px; text-transform:uppercase;
   letter-spacing:.05em; opacity:.7; margin-bottom:2px; }
 .ru-new { background:var(--fn-bg-elevated); }
+.ru-part { padding:1px 0; }
+.ru-part b { display:block; font-size:10px; text-transform:uppercase; letter-spacing:.4px; opacity:.6; }
+/* a new rule that cannot run is the one case here that must not be quiet */
+.ru-warn { color:var(--fn-color-danger); font-size:11.5px; margin:6px 0 0; }
+.ru-note { color:var(--fn-color-info); font-size:11.5px; margin:6px 0 0; opacity:.85; }
 .ru-acts { display:flex; gap:6px; margin-top:8px; }
 .ru-list { margin-top:4px; }
 .ru-hist { font-size:11.5px; color:var(--fn-color-info); }
@@ -4744,6 +4752,10 @@ function renderToolChips(state) {
       const on = b.dataset.on === "1";
       b.dataset.on = on ? "0" : "1";
       AGENT.toolState[k] = !on;
+      /* a skill's availability depends on these switches, so the cards have to
+         be redrawn or the "cannot run" note below goes stale the moment one of
+         them moves */
+      renderSkillCards(Array.from(AGENT.skillState));
     });
     box.appendChild(b);
   });
@@ -4775,10 +4787,27 @@ function renderSkillCards(selected) {
     const nm = document.createElement("div");
     nm.className = "nm";
     nm.textContent = s.name;
+    /* a skill somebody wrote rather than one that shipped, so it is obvious
+       which of these the agent came up with */
+    if (s.created) {
+      const badge = document.createElement("span");
+      badge.className = "req";
+      badge.textContent = "new — written by the agent";
+      nm.appendChild(badge);
+    }
     const req = document.createElement("span");
     req.className = "req";
-    req.textContent = "needs: " + s.requires.join(", ");
+    /* The note that matters: resolve() drops a skill whose capabilities are off,
+       so selecting it would otherwise look like it worked and do nothing. */
+    const missing = (s.requires || []).filter(c => !(AGENT.toolState || {})[c]);
+    req.textContent = "needs: " + (s.requires || []).join(", ");
     nm.appendChild(req);
+    if (missing.length) {
+      const warn = document.createElement("span");
+      warn.className = "req blocked";
+      warn.textContent = missing.join(", ") + " switched off — this would not run";
+      nm.appendChild(warn);
+    }
     const ds = document.createElement("div");
     ds.className = "ds";
     ds.textContent = s.description;
@@ -8252,21 +8281,55 @@ function paintRules() {
       const box = ruEl("div", "ru-item");
 
       const head = ruEl("div", "ru-head");
-      head.appendChild(ruEl("span", "ru-field", p.skillName + " · " + p.field));
+      head.appendChild(ruEl("span", "ru-field", p.kind === "create"
+        ? p.skillName + " · new rule"
+        : p.skillName + " · " + p.field));
       const when = ruAgo(p.at);
       if (when) head.appendChild(ruEl("span", "ru-when", when));
       head.appendChild(ruEl("span", "ru-when", "by " + (p.by || "agent")));
       box.appendChild(head);
 
-      const diff = ruEl("div", "ru-diff");
-      const old = ruEl("div", "ru-old");
-      old.appendChild(ruEl("b", null, "now in effect"));
-      old.appendChild(document.createTextNode(p.from || "(empty)"));
-      const nw = ruEl("div", "ru-new");
-      nw.appendChild(ruEl("b", null, "what it would become"));
-      nw.appendChild(document.createTextNode(p.to || "(empty)"));
-      diff.append(old, nw);
-      box.appendChild(diff);
+      /* A new rule has nothing to compare against, so a before/after pair would
+         read as an empty current value being replaced. It gets the rule itself,
+         broken into its parts, because the requires list is the part a reviewer
+         has to actually think about. */
+      if (p.kind === "create") {
+        const full = ruEl("div", "ru-new");
+        for (const [label, text] of [["name", p.skill && p.skill.name], ["when it applies", p.skill && p.skill.description], ["instruction", p.skill && p.skill.instruction]]) {
+          if (!text) continue;
+          const row = ruEl("div", "ru-part");
+          row.appendChild(ruEl("b", null, label));
+          row.appendChild(document.createTextNode(text));
+          full.appendChild(row);
+        }
+        const reqs = p.requires || [];
+        const rrow = ruEl("div", "ru-part");
+        rrow.appendChild(ruEl("b", null, "asks for"));
+        rrow.appendChild(document.createTextNode(reqs.length ? reqs.join(", ") : "nothing — it only tells you how to work"));
+        full.appendChild(rrow);
+        box.appendChild(full);
+
+        /* Approving this writes a rule that exists but reaches nobody until it is
+           switched on in a profile. Saying that here is the whole point: without
+           it the agent can report a working rule that does not work. */
+        const off = (p.requires || []).filter(c => (st.capsOff || []).indexOf(c) !== -1);
+        if (off.length) {
+          box.appendChild(ruEl("p", "ru-warn", "Asking for " + off.join(", ") + ", which is switched off. A rule that asks for a capability nobody has on is never run — switch it on and select the rule, or it will sit here doing nothing."));
+        } else if (p.requires && p.requires.length) {
+          box.appendChild(ruEl("p", "ru-note", "Even once accepted this does nothing on its own: it also has to be switched on in a profile."));
+        }
+        if (p.stale) box.appendChild(ruEl("p", "ru-warn", "A rule with this id already exists. Accepting this replaces it rather than adding a new one."));
+      } else {
+        const diff = ruEl("div", "ru-diff");
+        const old = ruEl("div", "ru-old");
+        old.appendChild(ruEl("b", null, "now in effect"));
+        old.appendChild(document.createTextNode(p.from || "(empty)"));
+        const nw = ruEl("div", "ru-new");
+        nw.appendChild(ruEl("b", null, "what it would become"));
+        nw.appendChild(document.createTextNode(p.to || "(empty)"));
+        diff.append(old, nw);
+        box.appendChild(diff);
+      }
 
       box.appendChild(ruEl("p", "ru-reason", p.reason || "(no reason given)"));
 
@@ -8294,9 +8357,15 @@ function paintRules() {
   }
 
   if (ver) {
-    const n = st.overridden.length;
-    ver.textContent = n ? n + " rule" + (n === 1 ? "" : "s") + " changed from the shipped text"
-                        : "all rules are as shipped";
+    /* A rule the agent wrote is not "changed from the shipped text" — there was
+       no shipped text — and counting the two together would describe a new rule
+       as an edit, which is the misreading that makes it look pre-existing. */
+    const made = (st.skills || []).filter(s => s.created).length;
+    const edited = Math.max(0, st.overridden.length - made);
+    const bits = [];
+    if (edited) bits.push(edited + " changed from the shipped text");
+    if (made) bits.push(made + " written by the agent");
+    ver.textContent = bits.length ? bits.join(", ") : "all rules are as shipped";
   }
 
   if (hist) {
@@ -8307,7 +8376,11 @@ function paintRules() {
       hist.appendChild(ruEl("div", null, "History"));
       for (const h of st.history.slice().reverse()) {
         const row = ruEl("div", "ru-hist-row");
-        const what = h.skillId ? h.skillId + " · " + h.field : "all rules";
+        /* a created rule has no field, and string-concatenating the null would
+           put a literal "null" in front of the person deciding what to undo */
+        const what = !h.skillId ? "all rules"
+          : h.field ? h.skillId + " · " + h.field
+          : h.skillId + " · new rule";
         const who = ruEl("span", "ru-why", what + " — " + (h.reason || "no reason given"));
         row.appendChild(who);
         row.appendChild(ruEl("span", "ru-when", ruAgo(h.at)));

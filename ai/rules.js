@@ -105,20 +105,35 @@ const CAP_KEYS = ['browser', 'screenshot', 'dom', 'javascript', 'terminal', 'rul
 
 /* ── what an agent is allowed to propose ──────────────────────────────────
  *
- * Prose only. `requires` is the field that grants capabilities, so an agent
- * able to propose it could hand itself the terminal capability the person just
- * switched off — the override would be a back door around the tool toggle that
- * is supposed to be the thing deciding. A new skill is refused for the same
- * reason: a new skill carries its own requires, and would arrive asking for
- * exactly the capability it was not given.
+ * Editing an existing skill is prose only, and `requires` is deliberately not in
+ * it: that field is what grants capabilities.
  *
- * So: existing skill, prose field, nothing else. Widening this is rung 3 and
- * should be a decision rather than a default. */
+ * Creating a whole new skill does carry its own `requires`, and that used to be
+ * refused on the grounds that it would hand the agent a capability the person
+ * had just switched off. That reasoning was wrong about this codebase, and
+ * checking it is what turned the refusal into permission: `skills.resolve()`
+ * drops any skill whose `requires` is not already set on the profile, before it
+ * contributes anything to `granted`. `caps` is therefore the profile's flags and
+ * nothing else, whatever the catalog says. A new skill cannot widen a tool
+ * toggle, because the toggle is read first and the skill never gets past it.
+ *
+ * So creation is allowed, and `requires` is part of what a new skill is. What
+ * that costs is silence — a skill needing a capability nobody switched on simply
+ * does not run, and if the page does not say so the agent will believe it wrote
+ * something that works. Hence the two places that must say it: resolve() names
+ * the blocked skill and what it is missing, and the settings form marks the
+ * skill card with the same fact. A block has no other way to become visible,
+ * which is the whole difference between a limit and a rule. */
 const EDITABLE = ['name', 'description', 'instruction'];
 const MAX_LEN = { name: 80, description: 400, instruction: 4000 };
 const MAX_REASON = 500;
 const MAX_PENDING = 50;      /* a queue a person can actually read */
 const MAX_HISTORY = 30;
+
+/* A new skill's id is a slug, not prose, because it is a key in the overrides
+   map and shows up in a profile's saved skill list. */
+const ID_RE = /^[a-z][a-z0-9-]{1,39}$/;
+const MAX_ID_LEN = 40;
 
 const str = v => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
 const isPlain = v => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -131,6 +146,42 @@ const isPlain = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const BAD_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F]/;
 
 function bad(why) { return { ok: false, error: why }; }
+
+/**
+ * Check a whole skill definition. Used by both the propose path and the loader,
+ * so a skill written into data/rules.json by hand gets exactly the same door
+ * check as one an agent proposed — otherwise the file becomes a way around the
+ * proposal queue, which is the one thing the queue is for.
+ *
+ * `requires` is checked against the known capability names, not against the
+ * profile. An unknown name is a typo, and a typo here is not a harmless one: it
+ * can never be satisfied, so the skill silently never runs.
+ */
+function validateSkill(input) {
+  if (!isPlain(input)) return bad('a skill must be an object');
+  const id = str(input.id).trim();
+  if (!ID_RE.test(id)) return bad('a skill id must be lowercase letters, digits and dashes, starting with a letter (got "' + id.slice(0, MAX_ID_LEN) + '")');
+  if (knownSeed(id)) return bad('there is already a skill called ' + id + ' — propose an edit to it instead');
+
+  const skill = { id };
+  for (const field of EDITABLE) {
+    const v = str(input[field]).trim();
+    if (!v) return bad('a new skill needs a ' + field);
+    if (v.length > MAX_LEN[field]) return bad(field + ' is ' + v.length + ' characters, the limit is ' + MAX_LEN[field]);
+    if (BAD_CHARS.test(v)) return bad(field + ' contains control characters');
+    skill[field] = v;
+  }
+
+  if (input.requires === undefined || input.requires === null) return bad('a new skill needs a requires list (use [] for a skill that only adds instructions)');
+  if (!Array.isArray(input.requires)) return bad('requires must be a list of capability names, got ' + typeof input.requires);
+  const unknown = input.requires.filter(c => !CAP_KEYS.includes(c));
+  if (unknown.length) {
+    return bad('unknown capabilit' + (unknown.length > 1 ? 'ies' : 'y') + ': ' + unknown.join(', ')
+      + ' — the ones that exist are ' + CAP_KEYS.join(', '));
+  }
+  skill.requires = Array.from(new Set(input.requires));
+  return { ok: true, skill };
+}
 
 /* ── storage ────────────────────────────────────────────────────────────── */
 
@@ -176,7 +227,17 @@ function loadRules() {
   };
   if (isPlain(raw) && isPlain(raw.overrides)) {
     for (const [id, patch] of Object.entries(raw.overrides)) {
-      if (!knownSeed(id) || !isPlain(patch)) continue;
+      if (!isPlain(patch)) continue;
+      if (!knownSeed(id)) {
+        /* An id that is not a shipped skill is a skill someone created, and it
+           only counts as one if it passes the same check a proposal does. An id
+           that is neither a seed nor a valid skill is a typo in a hand-edited
+           file, and dropping it is better than carrying a half-skill that
+           resolve() would then block for reasons nobody can see. */
+        const made = validateSkill(Object.assign({ id }, patch));
+        if (made.ok) out.overrides[id] = made.skill;
+        continue;
+      }
       const clean = {};
       /* only fields that still exist and pass the same limits as a proposal.
          A hand-edited file gets the same door check as an agent. */
@@ -202,7 +263,7 @@ function loadPending() {
   if (pendingCache && stamp === pendingStamp) return pendingCache;
   const raw = readJson(proposalsFile());
   const list = raw && Array.isArray(raw.pending) ? raw.pending : [];
-  pendingCache = { pending: list.filter(p => isPlain(p) && p.id && knownSeed(p.skillId)) };
+  pendingCache = { pending: list.filter(p => isPlain(p) && p.id && (p.kind === 'create' || byId().has(p.skillId))) };
   pendingStamp = stamp;
   return pendingCache;
 }
@@ -222,31 +283,59 @@ function savePending(next) {
 }
 
 function knownSeed(id) { return SEED_SKILLS.some(s => s.id === id); }
-function seed(id) { return SEED_SKILLS.find(s => s.id === id) || null; }
 
 /* ── reading ────────────────────────────────────────────────────────────── */
 
-/** the catalog in effect: seed, with approved overrides laid over it */
+/** the catalog in effect: seed, with approved overrides laid over it, then any
+ *  skill somebody created — the catalog is the only place both kinds are read
+ *  from, so a created skill is as real as a shipped one everywhere downstream */
 function catalog() {
   const ov = loadRules().overrides;
-  return SEED_SKILLS.map(s => (ov[s.id] ? Object.assign({}, s, ov[s.id]) : s));
+  const seeds = SEED_SKILLS.map(s => Object.assign({ created: false }, s, ov[s.id], { created: false }));
+  const made = Object.entries(ov)
+    .filter(([id]) => !knownSeed(id))
+    .map(([id, s]) => Object.assign({}, s, { id, created: true }));
+  return seeds.concat(made);
 }
 
 function byId() { return new Map(catalog().map(s => [s.id, s])); }
 
 /** what a person sees as the pending change, with the current value alongside */
 function currentValue(skillId, field) {
-  const s = seed(skillId);
+  const s = byId().get(skillId);
   if (!s) return null;
-  const ov = loadRules().overrides[skillId];
-  return (ov && ov[field] !== undefined) ? ov[field] : s[field];
+  return s[field] === undefined ? null : s[field];
 }
 
 function listProposals() {
   return loadPending().pending.map(p => {
-    const s = seed(p.skillId);
+    /* A creation has no "from" — there is nothing to compare it against, and
+       showing an empty before/after for it would read as a deletion. It is
+       listed as what it is: a whole new skill, with the requires it asks for,
+       because that list is the thing the reviewer most needs to see. */
+    if (p.kind === 'create') {
+      const sk = isPlain(p.skill) ? p.skill : {};
+      return {
+        id: p.id,
+        kind: 'create',
+        skillId: p.skillId,
+        skillName: str(sk.name || p.skillId),
+        skill: sk,
+        requires: Array.isArray(sk.requires) ? sk.requires : [],
+        field: null,
+        from: null,
+        to: null,
+        reason: p.reason,
+        at: p.at,
+        by: p.by,
+        /* it already exists, so approving would overwrite rather than create */
+        stale: byId().has(p.skillId),
+      };
+    }
+    const s = byId().get(p.skillId);
     return {
       id: p.id,
+      kind: 'edit',
       skillId: p.skillId,
       skillName: s ? s.name : p.skillId,
       field: p.field,
@@ -266,13 +355,35 @@ function history() { return loadRules().history.slice(); }
 
 function validate(p) {
   if (!isPlain(p)) return bad('a proposal must be an object');
+
+  /* A creation is validated as a whole skill, and the reason is required of it
+     for the same reason as an edit: the queue is read by a person deciding
+     whether to trust the change, and a new skill with no stated reason is the
+     least reviewable thing that can be in it. */
+  if (p.kind === 'create') {
+    const made = validateSkill(p.skill);
+    if (!made.ok) return made;
+    const reason = str(p.reason).trim();
+    if (!reason) return bad('reason is required — an unexplained change is not reviewable');
+    if (reason.length > MAX_REASON) return bad('reason is over ' + MAX_REASON + ' characters');
+    return { ok: true, kind: 'create', skillId: made.skill.id, skill: made.skill, reason };
+  }
+
   const skillId = str(p.skillId).trim();
   if (!skillId) return bad('skillId is required');
-  if (!knownSeed(skillId)) return bad('no such skill: ' + skillId);
+  /* Any rule in the catalog, not only a shipped one. A rule the agent wrote
+     that could never be corrected afterwards would be a worse deal than one
+     that could not be written at all: the first version would be permanent
+     because nobody happened to be looking. Only the prose is editable either
+     way, and requires is refused below for exactly the same rule as before. */
+  if (!byId().has(skillId)) {
+    return bad('no such rule: ' + skillId
+      + ' — to add one, propose kind "create" with a full rule');
+  }
   const field = str(p.field).trim();
   if (!EDITABLE.includes(field)) {
-    return bad('field must be one of ' + EDITABLE.join(', ') +
-      ' — requires and new skills are not the agent\'s to change');
+    return bad('field must be one of ' + EDITABLE.join(', ')
+      + ' — an existing rule\'s requires is not the agent\'s to change');
   }
   const value = str(p.value).trim();
   if (!value) return bad(field + ' cannot be empty');
@@ -294,8 +405,33 @@ function propose(input, by) {
   const v = validate(input);
   if (!v.ok) return v;
   const cur = loadPending();
+
+  if (v.kind === 'create') {
+    /* the same new skill twice is one question, not two */
+    const dup = cur.pending.findIndex(p => p.kind === 'create' && p.skillId === v.skillId);
+    if (dup !== -1) {
+      if (JSON.stringify(cur.pending[dup].skill) === JSON.stringify(v.skill)) {
+        return { ok: true, duplicate: true, id: cur.pending[dup].id, state: 'already proposed' };
+      }
+      const next = { pending: cur.pending.slice() };
+      next.pending[dup] = Object.assign({}, cur.pending[dup], {
+        skill: v.skill, reason: v.reason, at: new Date().toISOString(), by: str(by) || 'agent',
+      });
+      savePending(next);
+      return { ok: true, id: next.pending[dup].id, state: 'revised' };
+    }
+    if (byId().has(v.skillId)) return bad('the skill ' + v.skillId + ' already exists');
+    if (cur.pending.length >= MAX_PENDING) return bad('there are already ' + MAX_PENDING + ' proposals waiting; approve or reject some first');
+    const made = {
+      id: newId(), kind: 'create', skillId: v.skillId, skill: v.skill,
+      reason: v.reason, at: new Date().toISOString(), by: str(by) || 'agent',
+    };
+    savePending({ pending: cur.pending.concat([made]) });
+    return { ok: true, id: made.id, state: 'proposed', kind: 'create' };
+  }
+
   /* the same edit twice is one question, not two */
-  const dup = cur.pending.findIndex(p => p.skillId === v.skillId && p.field === v.field);
+  const dup = cur.pending.findIndex(p => p.kind !== 'create' && p.skillId === v.skillId && p.field === v.field);
   if (dup !== -1) {
     if (cur.pending[dup].value === v.value) {
       return { ok: true, duplicate: true, id: cur.pending[dup].id, state: 'already proposed' };
@@ -340,7 +476,20 @@ function approve(id) {
   const rules = loadRules();
   const before = clone(rules.overrides);
   const overrides = Object.assign({}, rules.overrides);
-  overrides[p.skillId] = Object.assign({}, overrides[p.skillId], { [p.field]: v.value });
+
+  /* A creation writes all four fields at once instead of one, but it is the
+     same overrides map and the same before-snapshot, which is why reverting it
+     needs no code of its own: `before` has no entry for the new id, so putting
+     the snapshot back removes the skill. */
+  const creating = v.kind === 'create';
+  if (creating) {
+    if (byId().has(v.skillId)) {
+      return bad('the skill ' + v.skillId + ' already exists — this proposal would overwrite it, not create it');
+    }
+    overrides[v.skillId] = clone(v.skill);
+  } else {
+    overrides[p.skillId] = Object.assign({}, overrides[p.skillId], { [p.field]: v.value });
+  }
 
   const next = {
     version: rules.version + 1,
@@ -350,10 +499,14 @@ function approve(id) {
       at: new Date().toISOString(),
       reason: v.reason,
       by: p.by,
+      kind: creating ? 'create' : 'edit',
       skillId: p.skillId,
-      field: p.field,
-      from: before[p.skillId] ? before[p.skillId][p.field] : (seed(p.skillId) || {})[p.field],
-      to: v.value,
+      field: creating ? null : p.field,
+      /* currentValue reads the catalog, so it is right for a rule the agent
+         wrote as well as a shipped one; looking only at the shipped list would
+         have found nothing and recorded the change as coming from nowhere. */
+      from: creating ? null : currentValue(p.skillId, p.field),
+      to: creating ? clone(v.skill) : v.value,
       /* both sides, so that reverting the first approval returns to the shipped
          text rather than to a state that no entry describes */
       before: before,
@@ -362,7 +515,10 @@ function approve(id) {
   };
   saveRules(next);
   savePending({ pending: loadPending().pending.filter(x => x.id !== id) });
-  return { ok: true, id, state: 'approved', version: next.version, skillId: p.skillId, field: p.field };
+  return {
+    ok: true, id, state: 'approved', version: next.version,
+    skillId: p.skillId, field: creating ? null : p.field, kind: creating ? 'create' : 'edit',
+  };
 }
 
 function revert(version) {

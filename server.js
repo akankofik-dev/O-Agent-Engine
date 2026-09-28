@@ -2045,8 +2045,20 @@ async function handleApi(req, res, pathname) {
    * tool call — rule_edit writes the proposals file and the store never opens
    * the rules file on that path. */
 
+  /* The rules queue, plus what the active profile currently has switched off.
+   * The page needs this to tell a reviewer that a proposed new rule would sit
+   * there doing nothing, and it is computed here rather than in the browser so
+   * that "what is on" has exactly one answer in the system. Deliberately just
+   * the one fact the page cannot work out for itself: which rules a profile has
+   * selected is the draft form's business, not this route's. */
+  function rulesContext() {
+    const profile = aiStore.activeProfile();
+    const tools = (profile && profile.tools) || {};
+    return { capsOff: aiRules.CAP_KEYS.filter(c => !tools[c]) };
+  }
+
   if (pathname === '/api/rules' && req.method === 'GET') {
-    return sendJson(res, 200, { ok: true, ...aiRules.state() });
+    return sendJson(res, 200, { ok: true, ...aiRules.state(), ...rulesContext() });
   }
 
   if (pathname.startsWith('/api/rules/') && req.method === 'POST') {
@@ -2063,7 +2075,7 @@ async function handleApi(req, res, pathname) {
       : null;
     if (!out) return sendJson(res, 404, { ok: false, error: 'no such rules action: ' + action });
     if (!out.ok) return sendJson(res, 400, { ok: false, error: out.error });
-    return sendJson(res, 200, { ok: true, ...out, ...aiRules.state() });
+    return sendJson(res, 200, { ok: true, ...out, ...aiRules.state(), ...rulesContext() });
   }
 
   if (pathname === '/api/agents/skills' && req.method === 'GET') {
