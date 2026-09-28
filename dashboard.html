@@ -564,7 +564,6 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
   min-height:calc(var(--oc-btn) + 12px); padding:6px 10px;
   font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--fn-text-tertiary); }
 .oc-empty-title { color:var(--fn-text-primary); font-weight:600; }
-.oc-empty-desc { color:var(--fn-text-tertiary); }
 .oc-side-head .grow { flex:1; }
 .oc-side .ses-list { flex:1; min-height:0; overflow-y:auto; border-top:1px solid var(--fn-border-tertiary); }
 .oc-side-foot { display:flex; align-items:center; gap:6px; flex:none; padding:6px 10px;
@@ -1099,7 +1098,6 @@ body.tab-chat .wb-head { display:none; }
 .chatempty { max-width:var(--oc-measure); margin:10px auto 0; text-align:center; color:var(--fn-text-tertiary);
   font-size:12.5px; line-height:1.5; }
 .chatempty .oc-empty-title { color:var(--fn-text-primary); font-weight:600; }
-.chatempty .oc-empty-desc { color:var(--fn-text-tertiary); }
 .chatempty[hidden] { display:none; }
 .empty-prompts { display:flex; flex-wrap:wrap; justify-content:center; gap:6px; margin-top:12px; }
 .empty-prompts button { border:1px solid var(--fn-border-secondary); background:transparent; color:var(--fn-text-secondary);
@@ -1959,7 +1957,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                 <button class="chat-head-btn oc-side-toggle" id="ocSideToggle" type="button" title="Hide the session list" aria-label="Hide the session list" aria-expanded="true" aria-controls="ocSide">▤</button>
               </header>
               <div class="chatlog" id="chatLog" role="log" aria-live="polite" aria-label="Octop conversation">
-                <div class="chatempty" id="chatEmpty"><span class="oc-empty-title">O Browser is ready.</span> <span class="oc-empty-desc">Ask O Browser to browse, inspect, or explain.</span><div class="empty-prompts"><button type="button" data-prompt="Open the browser and inspect the current page">Inspect the current page</button><button type="button" data-prompt="Summarize what is open in the browser">Summarize the browser</button><button type="button" data-prompt="Help me automate a browser task">Plan an automation</button></div></div>
+                <div class="chatempty" id="chatEmpty"><span class="oc-empty-title">O Browser is ready.</span><div class="empty-prompts"><button type="button" data-prompt="Open the browser and inspect the current page">Inspect the current page</button><button type="button" data-prompt="Summarize what is open in the browser">Summarize the browser</button><button type="button" data-prompt="Help me automate a browser task">Plan an automation</button></div></div>
                 <button class="latest-btn" id="chatLatest" type="button" hidden>Latest messages</button>
                 <div class="chatinner" id="chatLogInner"></div>
               </div>
