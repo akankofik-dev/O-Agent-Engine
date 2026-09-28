@@ -507,6 +507,34 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
   border-bottom:1px solid var(--fn-bg-primary); color:var(--fn-text-primary); }
 .chat-session-tab .tab-close { color:var(--fn-text-quaternary); font-size:12px; }
 .chat-session-tab .tab-close:hover { color:var(--fn-color-danger); }
+/* The rename field.
+   The field replaces the node that held the name rather than wrapping it —
+   in the tab strip that node is a <button>, and an editable field inside a
+   button is not a field, so the browser owns the click and the caret never
+   gets it. But that is also why it cannot inherit the type of what it
+   replaces: the element it would have inherited from is the element it took
+   the place of, and it is no longer in the document. Measured on the live
+   page that cost three pixels in the tab and two in the list, on the one
+   control whose whole job is to be the text it is editing.
+   So the shape is shared and each of the two places states its own type,
+   both of them the size the text they stand in for is already set at. The
+   negative margin is the border the field adds over the line of text, so
+   the row does not jump when the field appears. */
+.ses-rename {
+  display:block;  /* the div it stands in for is a block, and an inline-block field
+                   lands in an anonymous line box sized by the container strut */
+  background:var(--fn-bg-primary); color:var(--fn-text-primary);
+  border:1px solid var(--fn-border-focus); border-radius:4px;
+  padding:0 5px; margin:-1px 0; min-width:0; outline:none;
+}
+.ses-rename::selection { background:var(--fn-color-brand-bg); }
+.chat-session-tabs .ses-rename {
+  font:11px var(--fn-font-ui);
+  /* it stands in for the tab, so it holds the tab's own height or the bar
+     loses a few pixels for as long as the edit is open */
+  min-height:calc(var(--oc-btn) - 6px);
+}
+.ses-row .ses-rename { font-size:12px; line-height:1.35; font-weight:550; }
 .chat-new-tab { flex:none; display:grid; place-items:center; width:calc(var(--oc-btn) - 4px);
   height:calc(var(--oc-btn) - 6px); margin:0 0 0 2px;
   border:1px solid transparent; border-radius:var(--fn-radius-sm) var(--fn-radius-sm) 0 0; background:transparent;
@@ -3625,15 +3653,66 @@ async function stopRun() {
   if (CHAT.abort) { try { CHAT.abort.abort(); } catch { /* ignore */ } }
 }
 
+/** Rename a session where its name is, rather than in a dialog.
+ *
+ * Both places that can start a rename come through here, because they were
+ * two copies of the same three lines and two copies is how they drift.
+ *
+ * Enter keeps it, Escape puts it back, and clicking away keeps it — a rename
+ * that is thrown away by a stray click is worse than one that sticks, because
+ * the reader cannot tell which happened. An empty name is not an empty title:
+ * it falls back to the name the first message would have given it, which is
+ * what the dialog did with an empty field too. */
+function sesRenameInline(s, node) {
+  if (document.querySelector(".ses-rename")) return;   /* one rename at a time */
+  const was = s.title || "";
+  const input = document.createElement("input");
+  input.className = "ses-rename";
+  input.type = "text";
+  input.maxLength = 80;
+  input.value = was;
+  input.setAttribute("aria-label", "Session name");
+  /* as wide as the name it stands in for, so nothing jumps sideways */
+  input.style.width = Math.min(320, Math.max(90, Math.round(node.getBoundingClientRect().width))) + "px";
+
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    const next = input.value.trim();
+    if (commit) {
+      /* An unchanged name still commits: sessCommit() is also what moves a
+         session out of being a draft and into storage, and the dialog this
+         replaced never had that guard. The write is cheap; the surprise is
+         not. */
+      s.title = next.slice(0, 80) || sessTitleOf(s.hist) || "Untitled session";
+      s.updatedAt = Date.now();
+      sessCommit();
+    }
+    input.remove();
+    paintSessions();
+  };
+
+  input.addEventListener("keydown", e => {
+    e.stopPropagation();               /* a keystroke must not reach the chat */
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener("pointerdown", e => e.stopPropagation());
+  input.addEventListener("click", e => e.stopPropagation());   /* nor open a session */
+  input.addEventListener("blur", () => finish(true));
+
+  node.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
 /** Rename the session in view. Called from the active session tab. */
 function sesRenameActive() {
   const current = sessActive();
-  const next = window.prompt("Session name", current.title || sessTitleOf(current.hist) || "");
-  if (next === null) return;
-  current.title = String(next).trim().slice(0, 80) || sessTitleOf(current.hist) || "Untitled session";
-  current.updatedAt = Date.now();
-  sessCommit();
-  paintSessions();
+  const tab = document.querySelector("#chatSessionTabs .chat-session-tab.active");
+  if (!current || !tab) return;
+  sesRenameInline(current, tab);
 }
 
 function wireChat() {
@@ -7154,11 +7233,7 @@ function paintSessions() {
       menu.setAttribute("aria-label", "Rename " + (s.title || "session"));
       menu.addEventListener("click", e => {
         e.stopPropagation();
-        const next = window.prompt("Session name", s.title || "");
-        if (next === null) return;
-        s.title = String(next).trim().slice(0, 80) || sessTitleOf(s.hist) || "Untitled session";
-        s.updatedAt = Date.now();
-        sessCommit();
+        sesRenameInline(s, name);
       });
       acts.append(menu, del);
 
