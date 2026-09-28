@@ -3598,6 +3598,7 @@ async function sendMessage() {
   let sawText = false;
   let halted = false;          // the user pressed stop, not a failure
   let errored = false;         // the provider or a tool said no
+  let truncated = false;       // it hit the round limit — the task is not done
 
   try {
     const res = await fetch("/api/agent/run", {
@@ -3649,6 +3650,7 @@ async function sendMessage() {
             fail.errorType = ev.errorType || "unknown";
             fail.rateScope = ev.rateScope || null;
             fail.retryable = ev.retryable === true;
+            fail.contextOverflow = ev.contextOverflow === true;
             fail.gated = ev.gated === true;
             fail.model = ev.model || "";
             throw fail;
@@ -3658,6 +3660,17 @@ async function sendMessage() {
             finalText = ev.text;
           } else if (ev.type === "final") {
             if (ev.text && !finalText) { finalText = ev.text; sawText = true; }
+            if (ev.truncated) truncated = true;
+          } else if (ev.type === "retry") {
+            /* A retry the user cannot see is indistinguishable from a hang, and
+               a spinner they do not trust teaches them to press ■ on runs that
+               were one moment from answering. Say what is happening, and how
+               long the wait is, so stopping stays a real choice. */
+            setChatStatus("working", "Service busy — retry " + ev.attempt + " of " + (ev.of || "?")
+              + " in " + Math.max(1, Math.round((ev.waitMs || 0) / 1000)) + "s");
+          } else if (ev.type === "context_shrunk") {
+            chatNote("info", "This task was filling up the model's context window, so I dropped the oldest "
+              + "steps and asked again with " + Math.round((ev.budget || 0) / 1000) + "k characters of room.");
           } else if (ev.type === "tool_call") {
             tools.add(ev);
           } else if (ev.type === "tool_result") {
@@ -3686,6 +3699,13 @@ async function sendMessage() {
         chatNote("error", (e.message || "This model's allowance is used up.")
           + (e.model ? "  (" + e.model + ")" : ""));
         switchModelLink();
+      } else if (e && e.contextOverflow) {
+        /* Every attempt to make it fit has been made. This is not something to
+           retry — the conversation was already as small as it can go — so the
+           advice has to name the two things that actually change the outcome. */
+        chatNote("error", "This conversation is larger than the model's context window, and it could not be cut down far enough."
+          + (e.model ? "  (" + e.model + ")" : "")
+          + "\nStart a new chat to clear the history, or use a model with a larger window.");
       } else {
         chatNote("error", String((e && e.message) || e), { retry: (e && e.retryable) || e instanceof TypeError ? retryLastMessage : null });
         if (e && e.retryable) switchModelLink("Try again, or use another model");
@@ -3698,7 +3718,7 @@ async function sendMessage() {
     tools.finish();
     // a run always ends in a settled state: nothing is left saying "Thinking"
     if (errored) actPush("error", "bad");
-    else if (halted) actPush("stopped", "ok");
+    else if (halted || truncated) actPush("stopped", "ok");
     else actPush("done", "ok");
     actSave();
 
@@ -3709,6 +3729,12 @@ async function sendMessage() {
       trimHist();
     } else if (!halted && !errored && !sawText) {
       addMsg("a", "(the model returned nothing)");
+    }
+    /* Running out of steps is not finishing. Saying "done" here — which is what
+       an unqualified green tick means — is how a half-finished task gets read as
+       a finished one, and nobody notices until they act on the answer. */
+    if (truncated) {
+      chatNote("info", "That ran out of steps before it finished, so this is where it got to — not the whole task. Send \"continue\" and it picks up from here.");
     }
     /* A turn that ended without an answer — stopped, or refused before it got
        one — would leave this question in the history with nothing after it. Two

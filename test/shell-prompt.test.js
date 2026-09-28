@@ -97,8 +97,17 @@ async function session() {
   await sleep(1600);
   s.run = async (cmd, ms) => {
     const before = s.text.length;
+    const promptsBefore = s.prompts.length;
     ws.send({ type: 'cmd', text: cmd });
-    await sleep(ms || 1200);
+    /* Wait for the shell to print the next prompt instead of waiting a fixed
+       number of milliseconds. The prompt is the only thing here that says the
+       command finished; a sleep is a guess about how long a printf takes, and
+       a guess that is wrong on a busy machine turns a working shell into a red
+       cross — which is how this suite came to pass on its own and fail inside
+       the full run. The ceiling stays as a backstop, so a shell that genuinely
+       never prompts still fails rather than hanging the runner. */
+    const ceiling = Date.now() + (ms || 1200) * 4;
+    while (s.prompts.length <= promptsBefore && Date.now() < ceiling) await sleep(20);
     return s.text.slice(before);
   };
   return s;

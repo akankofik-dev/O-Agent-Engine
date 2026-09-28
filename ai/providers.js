@@ -68,6 +68,19 @@ function classify(status) {
 const RATE_TRANSIENT = /\b(rate[-_ ]?limit|too many requests|slow down|try again|overloaded)\b/i;
 const RATE_QUOTA = /\b(quota|per[-_ ]?day|per[-_ ]?month|per[-_ ]?week|monthly|daily|weekly|billing|credit|insufficient|exceeded your|usage limit)\b/i;
 
+/* A 400 is nearly always "your request was malformed", and the engine's only
+   sensible response to that is to stop. But one flavour of 400 is not malformed
+   at all — it is the request being too big — and treating that as fatal throws
+   away every tool result already gathered in this run for a limit the caller
+   can lower. Providers word this a dozen different ways, so all of them are
+   listed rather than guessing from the status code alone. */
+const CONTEXT_OVERFLOW =
+  /\b(context[ _-]?length|maximum context|context window|too many tokens|too long|prompt is too|input is too|reduce the length|string too long|request too large|exceeds the context)\b/i;
+
+function looksLikeContextOverflow(detail) {
+  return CONTEXT_OVERFLOW.test(String(detail || ''));
+}
+
 function rateLimitScope(detail) {
   const s = String(detail || '');
   if (RATE_QUOTA.test(s)) return 'quota';
@@ -112,16 +125,21 @@ function errorFromResponse(res, body, secret, url) {
      key that never needed touching. */
   const aboutKey = kind === 'auth_error' && compat.looksLikeKeyProblem(detail);
 
+  const overflow = kind === 'bad_request' && looksLikeContextOverflow(detail);
+
   let headline = null;
   if (gated) headline = 'this model is not available to this application';
   else if (kind === 'auth_error' && res.status === 403 && !aboutKey) {
     headline = 'the provider refused this request — the reason is not stated';
   } else if (scope === 'quota') headline = 'the provider’s allowance for this model is used up';
+  else if (overflow) headline = 'the request was larger than this model’s context window';
 
   return new ProviderError(`${headline || res.status + ' ' + label}${detail ? ` — ${detail}` : ''}`, {
     status: res.status, errorType: kind, url, body: detail,
-    rateScope: scope, gated, aboutKey,
-    retryable: kind === 'rate_limited' && scope === 'transient',
+    rateScope: scope, gated, aboutKey, contextOverflow: overflow,
+    retryable: overflow
+      || (kind === 'rate_limited' && scope === 'transient')
+      || kind === 'upstream_error',
   });
 }
 
@@ -154,11 +172,15 @@ class BaseProvider {
       res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeout) });
     } catch (e) {
       const timedOut = e.name === 'TimeoutError' || e.name === 'AbortError';
+      /* A request that never reached the provider cannot have been rejected by
+         it. Treating a dropped connection or a timeout as a final answer is what
+         makes a single unlucky network blip destroy a run that had already
+         spent several rounds of tool work. */
       throw new ProviderError(
         timedOut
           ? `no response after ${Math.round(timeout / 1000)}s — is the endpoint reachable?`
           : `could not reach ${url} — ${scrub(e.cause && e.cause.message ? e.cause.message : e.message, this.secret)}`,
-        { errorType: timedOut ? 'timeout' : 'network_error', url }
+        { errorType: timedOut ? 'timeout' : 'network_error', url, retryable: true }
       );
     }
     const body = await readBody(res);
@@ -496,4 +518,4 @@ function create(config) {
   return new Cls(config);
 }
 
-module.exports = { create, providerClass, REGISTRY, PROTOCOLS, DEFAULTS, ProviderError, scrub, joinUrl };
+module.exports = { create, providerClass, REGISTRY, PROTOCOLS, DEFAULTS, ProviderError, scrub, joinUrl, looksLikeContextOverflow };

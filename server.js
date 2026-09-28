@@ -2759,7 +2759,15 @@ async function agentRun(body, res) {
       controller: agentController(profile, send),
       onEvent: send,
     });
-    send({ type: 'final', ok: out.ok, rounds: out.rounds, text: out.text, stopped: !!out.stopped, ms: Date.now() - started });
+    /* `truncated` is carried out rather than dropped. The run reaching its round
+       limit is not the same event as finishing, and a page that cannot tell them
+       apart shows a green tick on a task that stopped halfway. */
+    send({
+      type: 'final', ok: out.ok, rounds: out.rounds, text: out.text,
+      stopped: !!out.stopped, truncated: !!out.truncated,
+      contextOverflow: out.contextOverflow === true,
+      ms: Date.now() - started,
+    });
   } catch (e) {
     logErr('agent run failed:', aiProviders.scrub(e.message, provider.apiKey));
     send({
@@ -2771,6 +2779,7 @@ async function agentRun(body, res) {
       // allowance and a busy service need different advice from the page
       rateScope: e.rateScope || null,
       retryable: e.retryable === true,
+      contextOverflow: e.contextOverflow === true,
       gated: e.gated === true,
       model,
     });

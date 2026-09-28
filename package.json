@@ -1,0 +1,18 @@
+{
+  "name": "octop-browser-automation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser automation console with a live browser preview, AI agents, terminal access, and a pinned Chrome for Testing runtime.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/run-all.js",
+    "browser": "node scripts/get-browser.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "license": "UNLICENSED"
+}
