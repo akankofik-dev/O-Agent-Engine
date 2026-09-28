@@ -924,23 +924,31 @@ body.tab-chat .wb-head { display:none; }
 .panel#p-chat.on, .panel#p-settings.on { flex-direction:row; overflow:hidden; }
 #p-chat .chat { flex:1; min-width:0; width:100%; display:flex; flex-direction:column; min-height:0; }
 
-/* The log does not grow, so the wordmark below it can.
+/* How the slack in the column is divided.
  *
- * The log used to be `flex:1 1 auto`, which meant it took every pixel of
- * free space and left the wordmark sitting on top of the composer instead of in
- * the middle. Taking the space away from it is what centres the mark: the log is
- * now exactly as tall as the conversation in it, the mark takes what is left
- * and centres itself in it, and the composer stays put.
+ * The composer must not move. It is where the eye goes next, and an input that
+ * jumps is an input that is in the wrong place twice — so the mark closing is
+ * not allowed to be visible as a change in the layout.
  *
- * It still scrolls, because a long conversation shrinks the log down to the
- * space that is left and the space that is left can reach nothing — at which
- * point the mark has no room and goes, and the log scrolls as it always did. */
-/* The log's own padding is part of the rhythm, not a default: 14px under the
-   tabs so the first message is not adrift, and 10px at the foot so the last one
- * is not jammed against the composer. The composer adds 10px of its own, which
- * makes the 20px a conversation ends on — the one place in the column where a
- * real gap is wanted, because that is where the eye goes next. */
+ * That is the whole difficulty: the mark is a flex item that takes the space
+ * below the conversation, and when it goes that space has to be claimed by
+ * something or the whole stack rides up the panel. It was not, and the first
+ * message in a conversation moved the input 316px and left a third of the
+ * column empty underneath it.
+ *
+ * So exactly one of the two grows, and which one is decided by whether there is
+ * anything to read — a state paintChatEmpty already keeps, and the same one the
+ * orientation line uses. Empty: the log is as tall as the orientation line and
+ * the mark takes the rest, centred in it. Not empty: the mark is gone and the
+ * log takes the rest, so the composer stays exactly where it was.
+ *
+ * Nothing in between. No half-height mark, no gap, no jump. */
 .chatlog { flex:0 1 auto; min-height:0; overflow-y:auto; padding:14px 0 10px; scroll-behavior:smooth; }
+.chat[data-empty="0"] .chatlog { flex:1 1 auto; }
+/* 14px under the tabs so the first message is not adrift, and 10px at the foot
+   so the last one is not jammed against the composer — which adds 10px of its
+   own, making the 20px a conversation ends on. It is the one place in the
+   column where a real gap is wanted, because it is where the eye goes next. */
 .chatempty { max-width:var(--oc-measure); margin:10px auto 0; text-align:center; color:var(--fn-text-tertiary);
   font-size:12.5px; line-height:1.5; }
 .chatempty .oc-empty-title { color:var(--fn-text-primary); font-weight:600; }
@@ -971,7 +979,19 @@ body.tab-chat .wb-head { display:none; }
  * list than the next paragraph is, and a list item is tighter than a paragraph
  * break. Anything that was one number before and is another now was one number
  * because it happened to be the one that was there. */
-.msg { display:flex; flex-direction:column; gap:3px; position:relative; }
+/* A bubble is a bubble, and a bubble is the size of what is in it.
+ *
+ * This was a block, so it took the full measure and a six-word sentence came out
+ * as a 680px box with 30 words of empty air on the right. Nothing else in the
+ * column shouts "unfinished" the way a stretched bubble does: the eye reads the
+ * box first, the sentence second, and a box the width of the window says the
+ * layout was drawn rather than written. fit-content lets it end where the text
+ * ends, and the max-width keeps a long one inside the measure instead of
+ * letting it press against the gutter.
+ *
+ * align-items on the message is what makes the shrink work at all — as a block
+ * child the bubble would simply be as wide as it was allowed to be. */
+.msg { display:flex; flex-direction:column; align-items:flex-start; gap:3px; position:relative; }
 .msg.same { margin-top:-8px; }
 .msg .msghead { display:flex; align-items:center; gap:8px; min-height:15px; }
 /* A run of messages from one speaker is labelled once.
@@ -986,12 +1006,18 @@ body.tab-chat .wb-head { display:none; }
 .msg.same .msghead { display:none; }
 .msg .who { font-size:10px; font-weight:550; letter-spacing:.04em; text-transform:uppercase; color:var(--fn-text-tertiary); }
 .msg .time { font-size:10px; color:var(--fn-text-quaternary); font-variant-numeric:tabular-nums; }
-.msg .body { font-size:14px; line-height:1.55; color:var(--fn-text-primary); word-break:break-word; }
+.msg .body { font-size:14px; line-height:1.55; color:var(--fn-text-primary); word-break:break-word; max-width:100%; }
 .msg .msghead::before { content:"O"; display:grid; place-items:center; width:20px; height:20px; flex:none; border:1px solid var(--fn-border-input-alt);
   border-radius:50%; color:var(--fn-text-secondary); font-size:10px; font-weight:600; }
 .msg.u .msghead::before { content:"U"; background:var(--fn-bg-secondary); color:var(--fn-text-primary); }
-.msg.u .body { background:var(--fn-bg-secondary); border:1px solid var(--fn-border-secondary); border-radius:calc(var(--fn-radius-lg) * var(--fn-radius-scale)); padding:7px 11px; }
-.msg.a .body { padding:1px 0; }
+.msg.u .body { align-self:flex-start; max-width:100%; width:fit-content;
+  background:var(--fn-bg-secondary); border:1px solid var(--fn-border-secondary);
+  border-radius:calc(var(--fn-radius-lg) * var(--fn-radius-scale)); padding:7px 11px; }
+/* The agent answers in prose, and prose is read at the measure, not at the
+   width of its shortest sentence — so its body keeps the full column. Only the
+   bubble shrinks, because a bubble is a shape around a few words and prose is
+   not. */
+.msg.a .body { align-self:stretch; padding:1px 0; }
 .msg.err .body { border-left:2px solid var(--fn-color-danger); padding-left:10px; }
 .msg .body:empty { display:none; }
 .msg .body p { margin:0 0 8px; }
@@ -2754,6 +2780,12 @@ function paintChatEmpty() {
   const e = $("chatEmpty");
   const empty = !(chatInner && chatInner.childElementCount);
   if (e) e.hidden = !empty;
+  /* One decision, three consequences: the orientation line, the mark, and which
+     of the two grows to fill the column. The third is why this is a state and
+     not two checks — a mark that hides without the log taking its height back
+     is a mark that pushes the composer up the panel. */
+  const chat = e && e.closest(".chat");
+  if (chat) chat.dataset.empty = empty ? "1" : "0";
   // the mark is the empty state's mark, so it is the same decision — the
   // orientation line and the mark are never one without the other
   markEmpty(empty);
