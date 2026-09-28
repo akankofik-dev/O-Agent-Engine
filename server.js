@@ -38,6 +38,7 @@ const aiCompat = require('./ai/compat');
 const aiAttachments = require('./ai/attachments');
 const aiAutomation = require('./ai/automation');
 const browserSession = require('./ai/browser/session');
+const agentRuns = require('./ai/runs').createRunRegistry();
 
 /* ----------------------------- config --------------------------------- */
 
@@ -1882,10 +1883,9 @@ async function handleApi(req, res, pathname) {
     try { body = JSON.parse(await readBody(req) || '{}'); }
     catch (e) { return sendJson(res, 400, { ok: false, error: 'bad json: ' + e.message }); }
     const id = String(body.runId || '');
-    const run = agentRuns.get(id);
-    if (!run) return sendJson(res, 200, { ok: false, error: 'that run has already finished' });
     // recorded, not just signalled: a page that reattaches has to see it stopped
-    run.stopped = true;
+    const run = agentRuns.cancel(id);
+    if (!run) return sendJson(res, 200, { ok: false, error: 'that run has already finished' });
     return sendJson(res, 200, { ok: true, runId: id, stopped: true });
   }
 
@@ -1902,14 +1902,8 @@ async function handleApi(req, res, pathname) {
        still going is not forgotten — the person can delete the record of a
        conversation, but stopping the work in it is what /api/agent/cancel is
        for, and doing it here would make a delete button silently kill a turn. */
-    let dropped = 0, kept = 0;
-    for (const [id, r] of agentRuns) {
-      if (r.sessionId !== sessionId) continue;
-      if (!r.finished) { kept += 1; continue; }
-      agentRuns.delete(id);
-      dropped += 1;
-    }
-    return sendJson(res, 200, { ok: true, sessionId, dropped, keptRunning: kept });
+    const { dropped, keptRunning } = agentRuns.forgetSession(sessionId);
+    return sendJson(res, 200, { ok: true, sessionId, dropped, keptRunning });
   }
 
   /* ---- per-agent documents: SOUL.md / MEMORY.md, skills, context ---- */
@@ -2304,8 +2298,8 @@ function shellExec(command, timeoutMs) {
   });
 }
 
-/** in-flight agent runs, so the UI can genuinely stop one */
-const agentRuns = new Map();
+/** in-flight agent runs, so the UI can genuinely stop one. See ai/runs.js —
+ *  the registry also holds the lock that keeps a run to one at a time. */
 
 'use strict';
 /* ========================================================================= *
@@ -2321,28 +2315,14 @@ const agentRuns = new Map();
  *  second system, no polling, no new stream.
  * ========================================================================= */
 
-const RUN_KEEP_MS = 120000;      // a finished run stays replayable this long
-const RUN_EVENT_CAP = 240;       // and never grows without bound
-
 async function agentRunStatus(req, res) {
   const runId = String(new URL(req.url, 'http://x').searchParams.get('runId') || '').slice(0, 64);
-  const run = agentRuns.get(runId);
-  if (!run) {
+  const view = agentRuns.view(runId);
+  if (!view) {
     // not in the registry: either it never existed, or it finished long ago
     return sendJson(res, 200, { ok: true, runId, known: false, running: false, events: [] });
   }
-  return sendJson(res, 200, {
-    ok: true,
-    runId,
-    known: true,
-    running: !run.finished,
-    finished: !!run.finished,
-    failed: !!run.failed,
-    stopped: !!run.stopped,
-    startedAt: run.startedAt,
-    sessionId: run.sessionId || null,
-    events: run.events || [],
-  });
+  return sendJson(res, 200, { ok: true, known: true, ...view });
 }
 
 async function agentRun(body, res) {
@@ -2363,14 +2343,24 @@ async function agentRun(body, res) {
   const runId = String(body.runId || '').slice(0, 64) || ('run_' + Date.now().toString(36));
   // the session is the conversation; the run is one turn inside it
   const sessionId = String(body.sessionId || '').slice(0, 64) || null;
-  const run = { stopped: false, finished: false, startedAt: Date.now(), sessionId, events: [] };
-  agentRuns.set(runId, run);
-  // inbox files are scratch space, not storage; nor is a run nobody will rejoin
-  if (agentRuns.size > 32) {
-    for (const [id, r] of agentRuns) {
-      if (r.finished && Date.now() - r.startedAt > RUN_KEEP_MS) agentRuns.delete(id);
-    }
+
+  /* One turn at a time. Claimed only after everything above has been checked,
+     so a request that is merely misconfigured is still told what is wrong with
+     it rather than being told it is busy. See ai/runs.js for what a second
+     concurrent run would actually do to the browser. */
+  const claim = agentRuns.claim(runId, sessionId);
+  if (!claim.ok) {
+    return sendJson(res, 409, {
+      ok: false,
+      error: 'an agent run is already in progress — stop it first',
+      busy: true,
+      runId: claim.live.runId,
+      runningSince: claim.live.startedAt,
+    });
   }
+  const run = claim.run;
+
+  // inbox files are scratch space, not storage
   try { aiAttachments.sweep(); } catch { /* best effort */ }
 
   res.writeHead(200, {
@@ -2382,9 +2372,7 @@ async function agentRun(body, res) {
   const send = ev => {
     // one funnel, so what a reattaching page replays is exactly what the first
     // page saw: the same events, in the same order, from the same run
-    run.events.push(ev);
-    if (run.events.length > RUN_EVENT_CAP) run.events.shift();
-    if (ev.type === 'final' || ev.type === 'error') run.finished = true;
+    agentRuns.record(run, ev);
     if (!res.writableEnded) res.write('data: ' + JSON.stringify(ev) + '\n\n');
   };
   send({ type: 'run', runId, sessionId });
@@ -2418,9 +2406,13 @@ async function agentRun(body, res) {
       model,
     });
   } finally {
-    // kept briefly, so a refresh moments later can still restore the session
-    run.finished = true;
-    run.endedAt = Date.now();
+    /* Releasing the lock. This is the only place it happens, and it is a
+       finally rather than a line at the end of the happy path: a run that
+       threw its way out without clearing the flag would keep the browser to
+       itself until the server was restarted, and the symptom — every later
+       turn answered "an agent run is already in progress" — names nothing
+       that is actually running. */
+    agentRuns.finish(run);
   }
   res.end();
 }
