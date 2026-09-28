@@ -562,8 +562,23 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
 .oc-side .ses-list { flex:1; min-height:0; overflow-y:auto; border-top:1px solid var(--fn-border-tertiary); }
 .oc-side-foot { display:flex; align-items:center; gap:6px; flex:none; padding:6px 10px;
   border-top:1px solid var(--fn-border-tertiary); }
-body.tab-chat .wb { padding:0; overflow:hidden; }
-body.tab-chat .wb-card { border:none; border-radius:0; }
+/* The chat gets a frame like every other tab, and less of one.
+ *
+ * The card's border and radius were switched off for the chat and nothing put
+ * in their place, so the conversation ran to the four edges of the window with
+ * no line anywhere around it — while Browser, Terminal, Sessions and Settings
+ * all sat inside a bordered card. One tab out of five with no edge is not a
+ * decision, it is an omission, and the eye reads it as a mistake before anything
+ * else about the layout.
+ *
+ * The gap around it is 8px rather than the 20px and 24px the other cards get,
+ * and the card's own padding is zero, because a conversation wants the room and
+ * the other cards are a form with fields in them. The frame is the same frame:
+ * the same border colour, the same radius, the same one pixel. A chat that
+ * wanted no frame at all would be a different decision; this one is the same
+ * decision as everything else, sized for what it holds. */
+body.tab-chat .wb { padding:8px; overflow:hidden; }
+body.tab-chat .wb-card { padding:0; }
 @media (max-width:900px) {
   #p-chat .chathome.has-sidebar { grid-template-columns:minmax(0,1fr); }
   /* Below the width where the list can have a column of its own, it stops
