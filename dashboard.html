@@ -516,36 +516,41 @@ body.tab-chat .wb-card { border:none; border-radius:0; }
 /* Terminal: the surface is the terminal, so it has no chrome of its own. */
 #p-terminal .stage { flex:1; min-width:0; display:flex; flex-direction:column; gap:0; min-height:0; position:relative; }
 #p-terminal .stage-main { flex:1; min-width:0; display:flex; flex-direction:column; min-height:0; }
-/* A terminal does not follow the page theme. Its background is #282a36 in both
-   themes, because the output it shows is light text — tying it to --fn-bg-code
-   made it a near-white box full of #f8f8f2 text in light mode. The muted tone
-   inside it (#8892b2) was chosen against that background, not against a token. */
+/* A terminal does not follow the page theme, and it has its own themes: the ◐
+   button cycles them, and the one in force is written onto the elements as
+   inline style. Everything here is the *fallback* — the colours a terminal has
+   before the theme script runs, and the reason the panel never flashes white.
+   It is the first entry of TERM_THEMES, so the fallback and the default are
+   the same palette and the handover is invisible. */
 #p-terminal .xterm {
   flex:1 1 auto; min-height:0; min-width:0;
-  background:#282a36; border:none; padding:0;
+  background:#300a24; border:none; padding:0;
   display:flex; flex-direction:column; overflow:hidden;
 }
 #p-terminal .xterm pre { flex:1 1 auto; min-height:0; overflow-y:auto; margin:0;
-  font-family:var(--fn-font-mono); font-size:13px; line-height:1.5; color:#f8f8f2;
+  font-family:var(--fn-font-mono); font-size:13px; line-height:1.5; color:#ffffff;
   padding:10px 12px; white-space:pre-wrap; word-break:break-word; }
 #p-terminal .tline { flex:none; display:flex; align-items:baseline; gap:6px; padding:0 12px 8px;
   font-family:var(--fn-font-mono); font-size:13px; line-height:1.5; }
-#p-terminal .tline .tp { color:#8be9fd; white-space:pre; font-weight:600; }
+#p-terminal .tline .tp { color:#8ae234; white-space:pre; font-weight:600; }
 #p-terminal .tline input { flex:1; min-width:0; background:transparent; border:none; outline:none;
-  color:#f8f8f2; font:inherit; caret-color:#f8f8f2; padding:0; }
-/* The terminal keeps its own palette, so contrast has to be checked against
-   #282a36 and not against a theme token. Dracula's comment grey (#6272a4) is
-   1.13:1 on that background — invisible. #8892b2 is 4.6:1 and still reads as
-   the quietest thing in the pane. */
-#p-terminal .tline input::placeholder { color:#8892b2; }
+  color:#ffffff; font:inherit; caret-color:#e95420; padding:0; }
+/* The terminal keeps its own palette, so contrast is checked against its own
+   background and not against a theme token. Against Ubuntu's #300a24: fg
+   17.6:1, prompt green 10.9:1, and the muted tone 7.3:1 — all clear of AA, and
+   the muted one still the quietest thing in the pane. */
+#p-terminal .tline input::placeholder { color:#a9a5b0; }
 /* appearance:none matters here: a <button> that sets no background gets the
    UA's buttonface, which is a mid grey in dark mode and a near-white in light —
    a pill floating in the middle of a dark terminal, and a different pill per
    theme. The button only ever wanted a border. */
 #p-terminal .tbadge { flex:none; margin-left:auto; font-size:10.5px; padding:1px 7px; border-radius:999px;
-  border:1px solid #44475a; color:#8892b2; align-self:center; cursor:pointer;
+  border:1px solid rgba(255,255,255,.22); color:inherit; opacity:.62; align-self:center; cursor:pointer;
   appearance:none; -webkit-appearance:none; background:transparent; }
-#p-terminal .tbadge:hover { color:#f8f8f2; border-color:#8892b2; }
+#p-terminal .tbadge:hover { opacity:1; border-color:currentColor; }
+/* Ubuntu greys the prompt while a command runs, so the row you are typing into
+   reads as "not this one right now" instead of looking live. */
+#p-terminal .xterm.busy .tp { color:#a9a5b0; }
 
 /* Settings is the one panel that is a page of content rather than a
    workspace, so it keeps the card's own padding and is ruled into sections
@@ -687,25 +692,23 @@ select option { background:var(--fn-bg-elevated); color:var(--fn-text-primary); 
   opacity:0; pointer-events:none; transition:opacity .15s ease; }
 .canvas:hover .hud, .hud.always { opacity:1; pointer-events:auto; }
 /* The terminal's own colours live under #p-terminal, which is the only place
-   a terminal exists. What is left here is the part that is about layout, so
-   the panel block can stay about appearance. */
+   a terminal exists. What is left here is layout and the bare bones, so the
+   panel block above can stay about appearance. No colour appears in this block:
+   the palette is Ubuntu's, and it is defined once, in the #p-terminal rules. */
 .xterm { min-height:240px; display:flex; flex-direction:column; overflow:hidden; }
 .xterm pre { flex:1 1 auto; min-height:0; overflow-y:auto; margin:0;
-  font-family:var(--fn-font-mono); font-size:13px; line-height:1.5; color:#f8f8f2;
+  font-family:var(--fn-font-mono); font-size:13px; line-height:1.5;
   padding:10px 12px; white-space:pre-wrap; word-break:break-word; }
 .tline { flex:none; display:flex; align-items:baseline; gap:6px; padding:0 12px 8px;
   font-family:var(--fn-font-mono); font-size:13px; line-height:1.5; }
-.tline .tp { color:#8be9fd; white-space:pre; font-weight:600; }
+.tline .tp { white-space:pre; font-weight:600; }
 .tline input { flex:1; min-width:0; background:transparent; border:none; outline:none;
-  color:#f8f8f2; font:inherit; caret-color:#f8f8f2; padding:0; }
-.tline input::placeholder { color:#8892b2; }
-.xterm.busy .tp { color:#8892b2; }
-.xterm .tbadge { flex:none; margin-left:auto; font-size:10.5px; padding:1px 7px; border-radius:999px;
-  border:1px solid #44475a; color:#8892b2; align-self:center; cursor:pointer; }
-.xterm .tbadge:hover { color:#f8f8f2; border-color:#8892b2; }
+  font:inherit; padding:0; }
+.xterm .tbadge { flex:none; margin-left:auto; font-size:10.5px; padding:1px 7px;
+  border-radius:999px; align-self:center; cursor:pointer; }
 /* A panel block above sets .xterm border and padding to none; this is the
    fallback for a terminal that is not inside #p-terminal. */
-.xterm { background:#282a36; border:1px solid var(--fn-border-primary); padding:4px; }
+.xterm { border:1px solid var(--fn-border-primary); padding:4px; }
 
 /* ============================ settings ============================ */
 .settings { flex:1; min-width:0; display:flex; flex-direction:column; gap:0; min-height:0; overflow-y:auto; }
@@ -1715,7 +1718,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                 <pre id="xtermPre" aria-live="polite"></pre>
                 <div class="tline" id="tLine">
                   <span class="tp" id="tPrompt"></span>
-                  <input id="tInput" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="type a command, Enter to run · Ctrl+C to interrupt" aria-label="Shell command" />
+                  <input id="tInput" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="run a command…" aria-label="Shell command" />
                   <button class="tbadge" id="tRestart" type="button" title="Interrupt the running command (Ctrl+C) or restart the shell">↻ restart</button>
                 </div>
               </div>
@@ -2206,8 +2209,17 @@ cycle("viewportBtn", VIEWPORTS, "Viewport", "Auto", v => {
 });
 cycle("refreshBtn", REFRESH, "Auto refresh", "500ms", v => setStatusPoll(parseInt(v, 10) || 0));
 
-/* ---------- terminal color theme (cycles real Octop themes) ---------- */
+/* ---------- terminal color theme (cycles real Octop themes) ----------
+   [name, background, text, prompt, accent]
+
+   Ubuntu is first because it is the one people picture when they picture a
+   terminal: aubergine, with the prompt's green where Ubuntu draws user@host.
+   The five slots are the ones the theme script paints, and every palette here
+   was checked against its own background rather than against a page token —
+   a terminal shows light text and tying it to the page theme is what made it
+   a near-white box in light mode. */
 const TERM_THEMES = [
+  ["Ubuntu","#300a24","#ffffff","#8ae234","#e95420"],
   ["Dracula","#282a36","#f8f8f2","#8be9fd","#50fa7b"],
   ["VS Code Dark","#1e1e1e","#d4d4d4","#569cd6","#6a9955"],
   ["One Dark Pro","#282c34","#abb2bf","#61afef","#98c379"],
@@ -2231,7 +2243,7 @@ const TERM_THEMES = [
     box.querySelectorAll("[data-gr]").forEach(el => el.style.color = green);
     const tp = document.getElementById("tPrompt");
     if (tp) tp.style.color = cyan;
-    btn.title = "Color Theme: " + TERM_THEMES[i][0] + " — click to switch (8 themes)";
+    btn.title = "Color Theme: " + TERM_THEMES[i][0] + " — click to switch (" + TERM_THEMES.length + " themes)";
   };
   btn.addEventListener("click", () => { i = (i + 1) % TERM_THEMES.length; apply(); });
   apply();
@@ -4393,6 +4405,60 @@ const tBox = $("xtermBox");
 
 function termScroll() { if (tPre) tPre.scrollTop = tPre.scrollHeight; }
 function termPaint(tab) { if (tPre) tPre.textContent = tab.buf; termScroll(); }
+
+/**
+ * A prompt short enough to type next to.
+ *
+ * cmd.exe prints the whole path every time — C:\Users\<you>\Documents\... — and
+ * in a 700px pane that is most of the line, leaving a few characters to type
+ * into. Shortening the parts that cannot be ambiguous gets it back:
+ *
+ *   C:\Users\you\Documents\Default Project\browser-automation>
+ *   ~\Documents\Default Project\browser-automation>
+ *
+ * This is display only. The shell's actual working directory is never touched,
+ * the full path is the tooltip and the tab's title, and a click puts the caret
+ * in the input rather than pretending the path is somewhere it is not. The
+ * trailing separator stays with the folder it belongs to, so the shape of the
+ * path is unchanged — only the two parts that are always the same are dropped.
+ */
+function termShortPath(cwd) {
+  if (!cwd) return "";
+  let p = String(cwd);
+  const home = (typeof HOME_PATHS !== "undefined" ? HOME_PATHS : null) ||
+    (/^[A-Za-z]:\\Users\\[^\\]+/.test(p) ? p.match(/^[A-Za-z]:\\Users\\[^\\]+/)[0] : "");
+  if (home && p.toLowerCase().startsWith(home.toLowerCase())) {
+    p = "~" + p.slice(home.length);
+  }
+  // the project root the shell was started in is as recognisable as the home
+  // directory, and the server already tells us what it is
+  const root = window.OCTOP_ROOT || "";
+  if (root && p.toLowerCase().startsWith(root.toLowerCase())) {
+    p = "<project>" + p.slice(root.length);
+  }
+  /* Even the shortened form is a lot of line in a narrow pane, and the input is
+     what the line is for. The leading folders go, because the path they are in
+     has a tooltip and a tab title carrying them, and the tail is what tells you
+     where you are — <project>\ai\automation is recognisable, ~\Documents\... is
+     a full row. Enough segments are kept to stay unambiguous, and the prompt is
+     never allowed to eat the input: this is the floor, not a preference. */
+  const MAX = 34;
+  if (p.length > MAX) {
+    const parts = p.split(/([\\/])/);
+    const keep = [];
+    for (let i = parts.length - 1; i >= 0 && keep.join("").length < MAX; i--) keep.unshift(parts[i]);
+    const head = p[0] === "~" || p[0] === "<" ? p[0] : "";
+    p = (head || "…") + "\\" + keep.join("").replace(/^[\\/]+/, "");
+  }
+  return p;
+}
+
+function termSetPrompt(tab) {
+  if (!tPrompt) return;
+  const full = tab.cwd || "";
+  tPrompt.textContent = full ? termShortPath(full) + ">" : "";
+  tPrompt.title = full;   // the whole thing, on hover
+}
 function termWrite(tab, text) {
   tab.buf += text;
   if (TERM.active !== tab.id || !tPre) return;
@@ -4459,7 +4525,7 @@ function termConnect(tab) {
 /** cmd prints its own prompt; we show it as the prefix of the input line */
 function termPromptNow(tab) {
   if (TERM.active !== tab.id) return;
-  if (tPrompt) tPrompt.textContent = tab.cwd ? tab.cwd + ">" : "";
+  termSetPrompt(tab);
   termBusy(tab, false);
 }
 
@@ -4496,7 +4562,7 @@ function termActivate(id) {
   if (!tab) return;
   TERM.active = id;
   termPaint(tab);
-  if (tPrompt) tPrompt.textContent = tab.cwd ? tab.cwd + ">" : "";
+  termSetPrompt(tab);
   termRenderTabs();
   if (tInput) tInput.focus();
 }
