@@ -8732,10 +8732,18 @@ function paintAutomation() {
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = !!e.enabled;
-    box.disabled = !!e.builtIn;          // the fallback is never optional
-    box.title = e.builtIn
-      ? "The built-in engine is the fallback and stays on"
-      : (e.enabled ? "Turn off" : "Turn on");
+    /* Every engine is switchable, including the built-in ones.
+     *
+     * This used to be `box.disabled = !!e.builtIn` — the fallback is never
+     * optional. That greyed out three of the four, so Native Chrome/CDP looked
+     * unavailable while plainly available, and the decision was made for the
+     * person rather than by them.
+     *
+     * The reasoning behind it does not survive contact with an agent that
+     * picks its own route: a browser on demand is what such an agent needs,
+     * and turning everything off does not fail silently — the router says no
+     * engine can do it. The lock's real cost was that nobody could turn it off. */
+    box.title = e.enabled ? "Turn off" : "Turn on";
     box.addEventListener("change", () => automationSet({ id: e.id, enabled: box.checked }));
     sw.appendChild(box);
     sw.appendChild(document.createTextNode(e.enabled ? "On" : "Off"));
