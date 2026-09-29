@@ -48,7 +48,10 @@
 })();
 </script>
 <style>
-/* Octop Design System v3 tokens (subset) — source: octop/dashboard/src/styles/theme-vars.css */
+/* Design System v3 tokens (subset) — copied from octop/dashboard/src/styles/theme-vars.css.
+   The path is left as it was, because it is where the tokens came from and a
+   renamed path in a comment is a reference to nothing. The product is not called
+   that any more; where the colours were copied from is still a fact. */
 :root,
 html[data-theme="light"] {
   --fn-bg-primary:#ffffff; --fn-bg-secondary:#f7f8fa; --fn-bg-tertiary:#f0f1f3;
@@ -1777,7 +1780,7 @@ dialog.docdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 1
   .stage { --ai-dw:272px; }
   .canvas, .xterm { min-height:260px; }
   .wb-head { margin-bottom:16px; }
-  /* collapse sidebar to 56px icon rail (Octop collapsed width) */
+  /* collapse sidebar to 56px icon rail (the collapsed width) */
   .sidebar { width:56px; }
   .sb-head { padding:14px 8px 10px; justify-content:center; }
   .logo { font-size:0; }
@@ -2304,7 +2307,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
 
 
 </head>
-<body data-brand="Octop">
+<body data-brand="O Agent">
 <div class="shell">
 
   <aside class="sidebar">
@@ -2342,7 +2345,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                 <span class="grow"></span>
                 <button class="chat-head-btn oc-side-toggle" id="ocSideToggle" type="button" title="Hide the session list" aria-label="Hide the session list" aria-expanded="true" aria-controls="ocSide">▤</button>
               </header>
-              <div class="chatlog" id="chatLog" role="log" aria-live="polite" aria-label="Octop conversation">
+              <div class="chatlog" id="chatLog" role="log" aria-live="polite" aria-label="O Agent conversation">
                 <div class="chatempty" id="chatEmpty"><span class="oc-empty-title" id="ocEmptyTitle">Ready when you are.</span><div class="empty-prompts"><button type="button" data-prompt="Open the browser and inspect the current page">Inspect the current page</button><button type="button" data-prompt="Summarize what is open in the browser">Summarize the browser</button><button type="button" data-prompt="Help me automate a browser task">Plan an automation</button></div></div>
                 <button class="latest-btn" id="chatLatest" type="button" hidden>Latest messages</button>
                 <div class="chatinner" id="chatLogInner"></div>
@@ -3031,7 +3034,7 @@ cycle("viewportBtn", VIEWPORTS, "Viewport", "Auto", v => {
 });
 cycle("refreshBtn", REFRESH, "Auto refresh", "500ms", v => setStatusPoll(parseInt(v, 10) || 0));
 
-/* ---------- terminal color theme (cycles real Octop themes) ----------
+/* ---------- terminal color theme ----------
    [name, background, text, prompt, accent]
 
    Default is first because it is what a terminal looks like when nobody has
@@ -3504,7 +3507,7 @@ function addMsg(who, text, opts) {
   head.className = "msghead";
   const label = document.createElement("span");
   label.className = "who";
-  label.textContent = o.label || (who === "u" ? "You" : "Octop");
+  label.textContent = o.label || (who === "u" ? "You" : "O Agent");
   const time = document.createElement("time");
   time.className = "time";
   time.textContent = messageTime();
@@ -3638,7 +3641,7 @@ function markEmpty(on) {
 
 function chatNote(kind, text, opts) {
   if (kind === "error") setChatStatus("error", "Error");
-  return addMsg("a", text, { ...(opts || {}), label: kind === "error" ? "Error" : "Octop", error: kind === "error" });
+  return addMsg("a", text, { ...(opts || {}), label: kind === "error" ? "Error" : "O Agent", error: kind === "error" });
 }
 
 function retryLastMessage() {

@@ -1826,7 +1826,7 @@ function originAllowed(req) {
   return origin === `http://${req.headers.host}`;
 }
 
-function sendJson(res, code, obj, origin = res.octopOrigin) {
+function sendJson(res, code, obj, origin = res.agentOrigin) {
   const body = JSON.stringify(obj);
   const h = {
     'content-type': 'application/json; charset=utf-8',
@@ -1874,7 +1874,7 @@ async function handleApi(req, res, url) {
      instead of a wildcard. Reached only because originAllowed() said yes, and
      a request with no Origin at all gets none back — which is the common case
      for the dashboard, since a same-origin fetch sends no Origin. */
-  res.octopOrigin = req.headers.origin || null;
+  res.agentOrigin = req.headers.origin || null;
 
   /* Who are you, and only then what do you want.
    *

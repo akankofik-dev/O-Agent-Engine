@@ -73,7 +73,15 @@ function coreLines(toolNames) {
      are not in conflict — a browser agent that picks its own route still reads
      the page before it acts. */
   return [
-    'You are a browser automation agent. You control a real Chrome browser on this machine through a fixed set of tools.',
+    /* What the tools can do, not what this is. This line used to read "You are a
+       browser automation agent", which is the same identity claim that was
+       removed from the default SOUL — and it survived that change because the
+       profile in front of us has `browser_read` and `browser_js` and never
+       received this line at all, so the check that looked for it did not see it
+       here. A profile that really can open tabs and navigate is told what it can
+       reach. Whether that makes it "a browser automation agent" is not a fact
+       about the machine and is not the context's to decide. */
+    'You can open and drive a real Chrome browser on this machine, through a fixed set of tools.',
     ...CORE,
     ...BROWSER_CORE,
     'Reply in short plain sentences: what you did, then what you saw.',

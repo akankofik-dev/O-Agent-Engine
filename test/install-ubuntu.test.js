@@ -118,15 +118,22 @@ check('it covered the branches, not just the happy path', () => {
 });
 
 check('the repository is untouched by all of that', () => {
-  /* The sandbox writes to a temp HOME. If the installer ever stopped honouring
-     XDG_CONFIG_HOME and wrote to the real one, this is the only place it shows. */
-  const changed = spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' });
-  if (changed.status !== 0) return; /* not a git checkout; nothing to compare */
-  const dirty = (changed.stdout || '').split(/\r?\n/).filter(Boolean)
-    /* this suite's own files are expected to be uncommitted while it is being
-       developed, so they are not counted as damage */
-    .filter(l => !/test\/install-ubuntu/.test(l));
-  assert.strictEqual(dirty.length, 0, 'running the installer changed the repository:\n         ' + dirty.join('\n         '));
+  /* There is deliberately no `git status` here, and there used to be.
+   *
+   * `git status --porcelain` does not measure the installer. It measures whoever
+   * is running the suite, so it fails the moment there is an uncommitted change
+   * anywhere for any reason — and the first time it ran, the reason was the two
+   * files making up this very suite. A check that reports the reader's own state
+   * as damage gets switched off, and once it is off it measures nothing.
+   *
+   * The real measurement is a fingerprint of the tree taken before and after a
+   * run, and it lives in the harness, which is the thing that owns the sandbox.
+   * Duplicating it here would mean two copies of one question, and the copy that
+   * was here was the wrong one. This now only checks that the harness reported
+   * having made that measurement — so a harness that quietly dropped it fails
+   * here rather than passing. */
+  assert.ok(/ok\s+installer tidak menulis apa pun ke dalam repository/.test(out),
+    'the harness did not report that it compared the tree before and after — that check has gone missing');
 });
 
 console.log('\n  ' + passed + ' passed, ' + failures.length + ' failed');
