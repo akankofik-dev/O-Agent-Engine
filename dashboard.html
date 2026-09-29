@@ -2068,6 +2068,18 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .curai .cvia { font-size:11px; color:var(--fn-text-tertiary); margin-top:1px; }
 .curai button { flex:none; }
+/* The button row that follows a .curai card, and the footers at the bottom of
+ * the AI form. It carries no rule of its own — every one of its eight uses wrote
+ * the same two declarations inline instead, while its siblings .au-acts and
+ * .ru-acts both have a rule. So the duplication moves here, where it can be read
+ * once: this is the only class in the page written that way.
+ *
+ * The gap above it is not in this rule on purpose. Four rows sit 11px below
+ * whatever is above them, one sits 10px, and the three footers sit flush because
+ * they are pinned to the bottom of a box and the box already spaces them. Those
+ * three really are different, so they stay inline — what all eight share is the
+ * flex and the gap, and only that moves. */
+.acts { display:flex; gap:6px; }
 
 /* ==================== voice + thinking ==================== */
 
@@ -2545,7 +2557,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                 <summary>Current AI <span class="hint" id="curHint"></span></summary>
                 <div class="setbody">
                   <div class="curai" id="curAiBox"></div>
-                  <div class="acts" style="display:flex;gap:6px;margin-top:11px">
+                  <div class="acts" style="margin-top:11px">
                     <button class="btn sm pri" data-addai="full" type="button">+ Add AI</button>
                     <button class="btn sm" data-addai="model" type="button">Change model</button>
                     <button class="btn sm" id="curOpenChat" type="button">Open Chat</button>
@@ -2577,7 +2589,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                   <p class="set-note" id="auNote"></p>
                   <div class="au-list" id="auList"></div>
                   <div class="au-log" id="auLog" hidden></div>
-                  <div class="acts" style="display:flex;gap:6px;margin-top:11px">
+                  <div class="acts" style="margin-top:11px">
                     <button class="btn sm" id="auCheck" type="button" title="Ask the server what is really installed">Check again</button>
                     <span class="ai-note" id="auShared"></span>
                   </div>
@@ -2591,7 +2603,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                     way to apply one. Nothing here takes effect until you accept it, and every accepted
                     change can be put back. It cannot change which tools a rule grants — that is yours.</p>
                   <div class="ru-list" id="ruPending"></div>
-                  <div class="acts" style="display:flex;gap:6px;margin-top:11px">
+                  <div class="acts" style="margin-top:11px">
                     <button class="btn sm" id="ruCheck" type="button" title="Ask the server what is waiting">Check again</button>
                     <button class="btn sm" id="ruReset" type="button" title="Drop every accepted change and go back to the shipped guidance">Reset to shipped</button>
                     <span class="ai-note" id="ruVersion"></span>
@@ -2604,7 +2616,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                 <summary>Agents <span class="hint" id="agHint"></span></summary>
                 <div class="setbody">
                   <div class="set-list" id="agList"></div>
-                  <div class="acts" style="display:flex;gap:6px;margin-top:11px">
+                  <div class="acts" style="margin-top:11px">
                     <button class="btn sm pri" id="agNew" type="button">+ New agent</button>
                     <button class="btn sm" id="agImport" type="button" title="Import an agent bundle">Import</button>
                   </div>
@@ -2669,7 +2681,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                           </div>
                           <button class="btn sm" data-doc="memory" type="button">Edit</button>
                         </div>
-                        <div class="acts" style="display:flex;gap:6px;margin-top:10px">
+                        <div class="acts" style="margin-top:10px">
                           <button class="btn sm" id="agPreview" type="button">Preview what the model receives</button>
                         </div>
                         <div id="agPreviewOut" class="ctxbox"></div>
@@ -2818,13 +2830,13 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
               <button class="btn sm" id="aiBack" type="button">Back</button>
               <div class="ai-note" id="aiNote"></div>
               <div class="grow"></div>
-              <div id="aiFoot-provider" class="acts" style="display:flex;gap:6px">
+              <div id="aiFoot-provider" class="acts">
                 <button class="btn sm pri" id="aiNext" type="button">Continue</button>
               </div>
-              <div id="aiFoot-key" class="acts" style="display:flex;gap:6px" hidden>
+              <div id="aiFoot-key" class="acts" hidden>
                 <button class="btn sm pri" id="aiConnect" type="button">Connect</button>
               </div>
-              <div id="aiFoot-model" class="acts" style="display:flex;gap:6px" hidden>
+              <div id="aiFoot-model" class="acts" hidden>
                 <button class="btn sm" id="aiTest" type="button">Test connection</button>
                 <button class="btn sm pri" id="aiUse" type="button">Use this model</button>
               </div>
