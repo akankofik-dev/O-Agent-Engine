@@ -617,7 +617,28 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * indicator, 530 weight on the title, 12px gap inside a turn, 24px between
  * turns, and content-visibility:auto so a long chat does not cost a long layout.
  */
-.actdock { margin:0 0 10px; }
+/* The dock is the last thing in the column, not the first.
+ *
+ * The note above says the work belongs in the conversation "between the
+ * messages", and the eye lands at the bottom of a log — that is where the last
+ * thing the agent said is, and that is where you are looking when you press
+ * Enter. But #actDock is a permanent first child of #chatLogInner, so every row
+ * in it, live spinner included, rendered above the entire transcript: the thing
+ * the agent was doing right now sat at the top of a page you had not scrolled
+ * to, and the live row was the one part of the dock that is only useful while
+ * it is happening.
+ *
+ * order:1 puts it after the messages without moving the element, which matters —
+ * the dock is read directly by id in several places, its children are indexed
+ * positionally when rows are painted, and paintChatEmpty() counts .msg in the
+ * log. Moving the node would have put all three at risk; this leaves every one of
+ * them reading the same element it read before, in a different place on screen.
+ *
+ * chatScrollNow() scrolls to scrollHeight, so the dock being last is also what
+ * the existing auto-scroll now follows. The old 10px bottom margin went with it:
+ * that separated the dock from the message after it, and there is no message
+ * after it now. The column's own 14px gap does the spacing. */
+.actdock { order:1; margin:0; }
 .actdock[hidden] { display:none; }
 .act-row { display:flex; align-items:center; gap:8px; width:100%;
   border:0; background:transparent; padding:3px 0; margin:0; text-align:left;
