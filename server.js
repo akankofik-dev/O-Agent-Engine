@@ -2841,11 +2841,41 @@ const SHELL_OUT_CAP = 8 * 1024 * 1024;
  * why it exited; shellExec's timeout settles on 'close', which fires once the
  * tree has actually died, grandchild pipes and all — the reason it kills the
  * tree rather than the child is unaffected by when the kill was issued. */
+/** how long the polite signals are given before SIGKILL. Generous, because
+ * the alternative is a shell that never goes away, and impatient, because the
+ * thing waiting on it is a session that has already been told it is closing. */
+const KILL_ESCALATE_MS = 1500;
+
 function killProcessTree(child) {
   if (!child || !child.pid) return;
   if (!IS_WINDOWS) {
-    try { process.kill(-child.pid, 'SIGTERM'); }
-    catch { try { process.kill(child.pid, 'SIGTERM'); } catch { /* already gone */ } }
+    /* The child is spawned detached on this platform, so it leads its own
+       process group and the group is what has to be signalled — killing only
+       the child leaves whatever it started holding the same pipes, and the
+       close event waits for the last writer. The single-pid form is the
+       fallback for a spawn that was not detached after all. */
+    const pid = child.pid;
+    const signalTree = sig => {
+      try { process.kill(-pid, sig); return; }
+      catch { /* no group, or it is already gone */ }
+      try { process.kill(pid, sig); } catch { /* already gone */ }
+    };
+
+    /* SIGHUP then SIGTERM, not SIGTERM then SIGHUP. An interactive shell with
+       job control waits out SIGTERM for as long as its foreground job runs, and
+       honours the hangup; sending the polite signal first spends the shell's
+       entire patience on the one it is least likely to act on. */
+    signalTree('SIGHUP');
+    signalTree('SIGTERM');
+
+    const t = setTimeout(() => signalTree('SIGKILL'), KILL_ESCALATE_MS);
+    if (typeof t.unref === 'function') t.unref();
+    /* `close` is the real answer: it fires when the last writer of the pipes is
+       gone, which is the tree being finished and not merely the shell. Waiting
+       for it also means the escalation is skipped once there is nothing left,
+       and signalling a process group by negative pid after it has exited risks
+       hitting whatever group the operating system has handed that number to. */
+    if (typeof child.once === 'function') child.once('close', () => clearTimeout(t));
     return;
   }
   execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, err => {

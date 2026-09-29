@@ -37,6 +37,41 @@ if (!TOKEN) {
   process.exit(1);
 }
 
+/**
+ * Say the server is not there, once, before any of it runs.
+ *
+ * This suite cannot start its own server, and the reason is not tidiness. It
+ * binds the port the product is actually served on, so a suite that owned it
+ * would either fail to bind or knock over the running one. It would also
+ * reissue the access token the other five suites read at load — five suites
+ * that all want the credential the current server issued, and a server that
+ * starts a new one on every boot is exactly what makes that awkward. So: the
+ * server is started by a person, once, and these suites use it.
+ *
+ * What was missing was not the ability to start one. It was saying so. The only
+ * preflight here read data/access-token, and that file survives the server going
+ * away — it is rewritten on every start, not deleted on every stop. So with the
+ * server down the token check passed and the suite then produced fourteen
+ * connection errors, none of which said what to do about it. One probe here
+ * turns that into one sentence.
+ */
+function requireServer() {
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: HOST, port: PORT, path: '/api/automation/engines', method: 'GET',
+      headers: { 'X-Octop-Token': TOKEN, origin: 'http://' + HOST + ':' + PORT },
+    }, res => { res.resume(); res.on('end', () => {
+      if (res.statusCode === 200) return resolve();
+      reject(new Error('the server on ' + PORT + ' answered ' + res.statusCode
+        + ' — it may be running older code, or the token is stale. Restart it: npm start'));
+    }); });
+    req.on('error', e => reject(new Error('nothing is answering on ' + HOST + ':' + PORT
+      + ' (' + e.code + '). These suites run against a server you started: npm start, then npm test')));
+    req.setTimeout(4000, () => { req.destroy(); reject(new Error('the server on ' + PORT + ' did not answer in 4s')); });
+    req.end();
+  });
+}
+
 let passed = 0;
 const failures = [];
 
@@ -103,10 +138,13 @@ function connect(url) {
 /** One shell session, with the transcript split the way the panel splits it. */
 async function session() {
   const ws = await connect('ws://' + HOST + ':' + PORT + '/api/shell');
-  const s = { started: null, text: '', prompts: [], close: () => ws.close() };
+  const s = { started: null, restarted: null, text: '', prompts: [], close: () => ws.close(), ws };
   ws.on(msg => {
     let m; try { m = JSON.parse(msg); } catch { return; }
-    if (m.type === 'started') s.started = m;
+    /* A restart sends a second 'started'. Keeping the first and noting the
+       second is what lets a test say the replacement arrived and is a
+       different process, rather than merely that something was printed. */
+    if (m.type === 'started') { if (s.started) s.restarted = m; else s.started = m; }
     if (m.type === 'stream') for (const seg of m.segs || []) {
       if (seg.p !== undefined) s.prompts.push(seg.p);
       else if (seg.o !== undefined) s.text += seg.o;
@@ -405,7 +443,137 @@ cases.push(['closing a session kills the shell it started', async () => {
   assert.ok(!alive, 'the shell (pid ' + pid + ') was still running 8s after the session closed');
 }]);
 
+cases.push(['restarting brings a new shell and buries the old one', async () => {
+  /* restart() is the one path through killProcessTree() that expects the tree to
+   * go and then a replacement to appear, and it had no coverage at all: the
+   * suite only ever closed a session, which is destroy(). The two differ —
+   * restart() sets killedBy and leans on the child's exit event to call
+   * start(), so a kill that took the child with it but left the exit event
+   * unaccounted for would leave a session with no shell and no error. */
+  const s = await session();
+  const first = s.started && s.started.pid;
+  assert.ok(first, 'the server did not report a pid to restart away from');
+  s.prompts.length = 0;
+  s.ws.send({ type: 'restart' });
+
+  const ceiling = Date.now() + 25000;
+  while (!s.restarted && Date.now() < ceiling) await sleep(25);
+  if (!s.restarted) throw new Error('no second shell reported itself within 25s of the restart');
+  /* the replacement is in `restarted`, not `started` — `started` is the shell
+     that was replaced, and reading the pid off it compares a pid with itself */
+  const second = s.restarted.pid;
+  if (!second) throw new Error('the replacement shell reported no pid: ' + JSON.stringify(s.restarted).slice(0, 160));
+  if (second === first) throw new Error('the restart reported the same pid ' + second + ' — nothing was replaced');
+
+  /* the old one has to be gone, or restart leaks a shell per press */
+  const gone = Date.now() + 8000;
+  let alive = true;
+  while (Date.now() < gone && alive) {
+    await sleep(100);
+    try { process.kill(first, 0); } catch { alive = false; }
+  }
+  assert.ok(!alive, 'the shell the restart replaced (pid ' + first + ') was still running 8s later');
+
+  /* and the new one has to actually work, not merely exist */
+  const out = await s.run('printf restarted-ok', 2000);
+  assert.ok(out.indexOf('restarted-ok') >= 0, 'the replacement shell does not run commands: ' + JSON.stringify(out.slice(0, 120)));
+  s.close();
+}]);
+
+cases.push(['the escalation kills a tree that ignored the polite signals', async () => {
+  /* The POSIX branch of killProcessTree() cannot run on this machine, because
+   * IS_WINDOWS is true here and the branch is guarded by it. A test that spawns
+   * a real process group would be a test of Node's signal handling on Windows,
+   * which answers a different question.
+   *
+   * So the branch's real source is lifted out of server.js and run against a
+   * recorded process boundary: the same text the server executes, with
+   * process.kill replaced by a recorder and a fake child that decides when its
+   * pipes close. That is enough to pin the three things that could silently
+   * regress — the order of the signals, that SIGKILL is delayed rather than
+   * immediate, and that the timer is cancelled once the tree is finished — and
+   * it cannot drift from the code, because it is the code. */
+  const text = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const start = text.indexOf('const KILL_ESCALATE_MS');
+  if (start < 0) throw new Error('server.js no longer names KILL_ESCALATE_MS');
+  const end = text.indexOf('\nfunction shellExec(', start);
+  if (end < 0) throw new Error('could not find the end of killProcessTree() in server.js');
+  const lifted = text.slice(start, end);
+  if (!/function killProcessTree/.test(lifted)) throw new Error('the lifted text is not killProcessTree() — server.js moved');
+
+  /* One way to build it, used twice. The earlier version of this check built a
+   * second copy inline and passed a different number of arguments to it, so the
+   * second tree never had a function to call and the check reported a lifting
+   * failure rather than the thing it was looking at.
+   *
+   * The stub is an object with a `kill` on it, not a function: the lifted code
+   * calls process.kill(...), and handing it a bare function gives it a `process`
+   * whose kill is undefined — which reads as "no signals were sent" rather than
+   * as a broken stub, and sent this looking at the signal order. */
+  const lift = (kill) => {
+    const factory = new Function('process', 'IS_WINDOWS', 'execFile',
+      'return (function() {' + lifted + '\nreturn killProcessTree; })();');
+    return factory({ kill }, false, () => {});
+  };
+
+  /* a child whose pipes close when we say so */
+  const handlers = {};
+  const child = { pid: 4242, once: (ev, fn) => { handlers[ev] = fn; } };
+  const calls = [];
+  const killProcessTree = lift((pid, sig) => { calls.push({ pid, sig }); });
+  if (typeof killProcessTree !== 'function') throw new Error('could not lift killProcessTree() out of server.js');
+
+  /* real timers, so the delay is actually observed rather than asserted */
+  const t0 = Date.now();
+  killProcessTree(child);
+  const atReturn = calls.map(c => c.sig);
+  if (atReturn.join(',') !== 'SIGHUP,SIGTERM') {
+    throw new Error('the signals sent up front are ' + JSON.stringify(atReturn) + ', expected SIGHUP then SIGTERM');
+  }
+  if (calls.length !== 2) throw new Error('something was sent synchronously that should have waited: ' + JSON.stringify(calls));
+  for (const c of calls) if (c.pid !== -4242) throw new Error('signalled pid ' + c.pid + ', not the group -4242');
+
+  /* let the escalation land, without waiting on a fixed sleep */
+  const ceiling = Date.now() + 6000;
+  while (calls.length < 3 && Date.now() < ceiling) await sleep(25);
+  if (calls.length < 3) throw new Error('SIGKILL never arrived; the escalation is not firing');
+  if (calls[2].sig !== 'SIGKILL') throw new Error('the third signal is ' + calls[2].sig);
+  const delay = Date.now() - t0;
+  if (delay < 1200) throw new Error('SIGKILL came after only ' + delay + 'ms — it is meant to be a fallback, not the first thing tried');
+
+  /* a tree that finished first must not be signalled again. Signalling a group by
+   * negative pid after it has exited can land on whatever group the operating
+   * system has since handed that number to, which is somebody else entirely. */
+  const calls2 = [];
+  const handlers2 = {};
+  const child2 = { pid: 777, once: (ev, fn) => { handlers2[ev] = fn; } };
+  lift((pid, sig) => calls2.push({ pid, sig }))(child2);
+  if (calls2.length !== 2) throw new Error('the second tree was not signalled politely first');
+  if (typeof handlers2.close !== 'function') throw new Error('nothing is listening for the child closing, so the escalation can never be cancelled');
+  handlers2.close();
+  await sleep(2000);
+  if (calls2.length !== 2) {
+    throw new Error('SIGKILL was sent ' + (calls2.length - 2) + ' time(s) after the tree had already closed: ' + JSON.stringify(calls2));
+  }
+
+  /* the Windows branch must be untouched by all of this */
+  if (!/if \(!IS_WINDOWS\)/.test(lifted)) throw new Error('the POSIX branch is no longer guarded by IS_WINDOWS');
+  if (!/taskkill/.test(lifted)) throw new Error('the Windows taskkill path is gone from killProcessTree()');
+  /* The unref is what keeps the escalation from holding the event loop open for
+   * 1.5s after the last session closed — the freeze killProcessTree() was
+   * originally rewritten to avoid. Asserted on the lifted source because that is
+   * the only way to see it: a timer that is not unref-d is invisible until the
+   * process refuses to exit, which is not something a test suite can wait for. */
+  if (!/\.unref\(\)/.test(lifted)) throw new Error('the escalation timer is never unref-d, so it holds the event loop open');
+}]);
+
 (async () => {
+  try {
+    await requireServer();
+  } catch (e) {
+    console.error('\n  ' + e.message);
+    process.exit(1);
+  }
   console.log('shell prompt and transcript — against a live server on ' + PORT);
   for (const [name, fn] of cases) await test(name, fn);
   console.log('\n  ' + passed + ' passed, ' + failures.length + ' failed');
