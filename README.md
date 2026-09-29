@@ -7,8 +7,8 @@ Agent console with a live browser preview, AI agents that extend themselves, ter
 Requirements: Ubuntu 22.04/24.04 with `apt-get` and either root or `sudo`. The installer bootstraps Node.js 20 when the installed Node version is missing or too old, installs the Chrome runtime libraries, and downloads the pinned browser build.
 
 ```bash
-git clone <repository-url> o-agent
-cd o-agent
+git clone <repository-url> O-Agent-Engine
+cd O-Agent-Engine
 bash scripts/install-ubuntu.sh
 ```
 
