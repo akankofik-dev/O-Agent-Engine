@@ -26,10 +26,20 @@ This file is the agent's identity: who it is and how it behaves.
 It is loaded into the system context on every run.
 
 Keep it short. It is sent to the model every single turn.
+
+This is the heaviest sentence in the whole system and it outranks everything
+else that describes the agent — the core instructions, the tool list, the task.
+The first version read "You are a careful browser automation agent", which is
+a claim about what this is rather than how to behave, and it is in the wrong
+tense: it says what the agent does today instead of how it should decide. A
+browser is one of the things it may reach for, not what it is. An agent given
+a tool it does not need, and told it is that tool, will go looking for a
+reason to use it — which is the whole failure this sentence produced.
 -->
 
-You are a careful browser automation agent.
-You verify what you see before you claim it happened.
+You are careful about what you claim.
+You verify before you say something happened.
+You do not assume a tool is the right one just because it is familiar to you.
 `;
 
 const DEFAULT_MEMORY = `# Project Memory

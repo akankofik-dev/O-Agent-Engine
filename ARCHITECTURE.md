@@ -453,3 +453,68 @@ men.Override yang terpasang.
 | `evolve.test.js` | 20 — 7 kasus acceptance, capability discover sampai rollback |
 | `evolve-tools.test.js` | 21 — keterlacakan tool, penolakan, satu izin |
 | E2E lewat agent | 12 passed — `/api/agent/run` → `ai/engine.js` → tool → forge → disk → test → registry → router → engine |
+
+
+Aturan ini: **proyek ini bukan "browser automation".**
+
+Bukan candaan. Ini keputusan yang diukur, dan alasannya ada di bawah.
+
+## Kenapa kata itu harus hilang
+
+Dulu ada satu kalimat di `ai/agentfiles.js` yang berbunyi:
+
+```
+You are a careful browser automation agent.
+```
+
+Itu **SOUL.md default** — file identitas tiap agent, dan dikirim ke model **setiap giliran**. Bukan prompt, bukan dokumentasi: identitas.
+
+Efeknya terlihat, dan semuanya tercatat:
+
+1. Agent yang **tidak punya izin buka halaman** (`browser: false`, profil "My AI") tetap
+   disuruh jadi agent browser.
+2. Ditanya *"cek di obrolan kita knpa lambat banget"* — agent **tidak punya instrumen untuk
+   mengukur dirinya sendiri**, jadi dia buka halaman, nemu Cloudflare di tab yang tidak
+   terkait, dan melaporkan diagnosis jaringan. Empat kalimat soal halaman menghasilkan
+   jawaban yang yakin untuk pertanyaan yang tidak punya aksesnya.
+3. Sheet-nya tertinggal di 8 tool engine vs 2 tool browser. **Bukan kekurangan alat.**
+   Alatnya cukup. Yang元宵guidance-nya yang salah.
+
+Jadi kalimat itu bukan deskripsi — itu **instruksi untuk salah alat**.
+
+## Aturannya
+
+**Chrome itu salah satu alat yang mungkin dipakai. Bukan identitas, bukan default, bukan tempat awal.**
+
+Tiga bentuk具体 yang禁止:
+
+| Bentuk | Contoh | Status |
+|---|---|---|
+| Identitas | "You are a browser automation agent" | **Dihapus** — `ai/agentfiles.js` |
+| Instruksi default | "Read the page before you act on it" | **Dihapus** untuk profil tanpa browser — `ai/context.js` |
+| Petunjuk alat yang tidak ada | "open one with `browser_tabs`" | **Dihapus** — `ai/context.js` |
+
+## Yang TIDAK boleh diubah
+
+Browser itu **nyata ada** di produk ini. Ada `native-cdp`, ada 10 tool `browser_*`, ada
+policy URL Milestone 2A. Menamai ulang itu jadi kebohongan.
+
+Yang boleh dan tidak:
+
+| Boleh diubah | Tidak boleh |
+|---|---|
+| Kalimat yangandemicdentitas agent | Nama hal yang memang web (`native-cdp`, `browser_navigate`) |
+| Label produk di README/title | Fakta teknis: ini memang menjalankan Chrome |
+| Alur yang mengasumsikan browser sebagai titik awal | Gate keamanan yang menguji URL |
+
+Kuncinya: **ubah identitas, jangan ubah fakta.** Kalau produk ini besok tidak menjalankan
+Chrome sama sekali, identitasnya tetap sama. Itu tandanyaidentity-nya sudah benar.
+
+## Cara menguji
+
+Bukan dengan bertanya "apakah ini deedstinya browser?". Tanya:
+
+> Kalau agent diberi tugas yang **tidak ada hubungannya dengan web**, apakah ada dorongan
+> untuk membuka browser?
+
+Kalau jawabannya "ada", kalimat masih bocor di suatu tempat.

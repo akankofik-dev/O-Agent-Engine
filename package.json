@@ -1,8 +1,8 @@
 {
-  "name": "octop-browser-automation",
+  "name": "o-agent",
   "version": "0.1.0",
   "private": true,
-  "description": "Browser automation console with a live browser preview, AI agents, terminal access, and a pinned Chrome for Testing runtime.",
+  "description": "Agent console with a live browser preview, AI agents that extend themselves, terminal access, and a pinned Chrome for Testing runtime.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

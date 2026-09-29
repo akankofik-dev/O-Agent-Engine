@@ -1,6 +1,6 @@
-# O Browser Automation
+# O Agent
 
-Simple browser automation console with a live browser preview, AI agents, terminal access, and a pinned Chrome for Testing runtime.
+Agent console with a live browser preview, AI agents that extend themselves, terminal access, and a pinned Chrome for Testing runtime.
 
 ## Ubuntu
 
@@ -19,7 +19,7 @@ Useful checks:
 ```bash
 curl -fsS http://127.0.0.1:8787/api/health
 curl -fsS http://127.0.0.1:8787/api/ready
-systemctl --user status octop-browser-automation.service
+systemctl --user status o-agent.service
 ```
 
 For a one-off run without systemd:

@@ -108,7 +108,31 @@ function controllerFor(router) {
   return ctx;
 }
 
-function rm(p) { try { fs.rmSync(p, { recursive: true, force: true }); } catch { /* nothing to remove */ } }
+/**
+ * Remove, and say so if it did not happen.
+ *
+ * This used to swallow every error, which is what made a whole class of
+ * failure invisible. Observed: with another test process still running and
+ * holding engines/echo-engine/index.js open, the removal at the top of this file
+ * failed, the suite carried on with a stale engine, and ten checks failed for
+ * reasons that pointed at the engine rather than at a locked file. The message
+ * that came out was "echo is already in the capability set — the premise of
+ * this test is gone", which is true and says nothing about why.
+ *
+ * A cleanup that cannot fail is a cleanup that can be skipped. This one
+ * reports, and a failure to tidy up stops the suite before it starts asserting
+ * on whatever was left behind.
+ */
+function rm(p) {
+  if (!p) return;
+  try { fs.rmSync(p, { recursive: true, force: true }); }
+  catch (e) {
+    if (e && e.code === 'ENOENT') return;
+    console.log('  ! could not remove ' + p + ' (' + (e && e.code) + ') — a file may be held open by another process');
+    console.log('    ' + String(e.message).slice(0, 140));
+    throw new Error('this suite starts from a known state, and engines/ could not be cleaned: ' + p);
+  }
+}
 
 (async () => {
   /* start from a known state, so a second run of this suite is the same run */
