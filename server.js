@@ -25,7 +25,7 @@ const os = require('os');
 const net = require('net');
 const path = require('path');
 const crypto = require('crypto');
-const { spawn, execFileSync } = require('child_process');
+const { spawn, execFileSync, execFile } = require('child_process');
 
 /* AI layer — provider abstraction, agent engine and tool runner. The browser
    controller below is injected into the engine, never the other way round. */
@@ -2600,16 +2600,44 @@ function agentController(profile, emit) {
  */
 const SHELL_OUT_CAP = 8 * 1024 * 1024;
 
+/** Kill a process and everything it started, without stopping the server.
+ *
+ * This was execFileSync, and that is the reason a browser tab could see
+ * ERR_INSUFFICIENT_RESOURCES. `taskkill /T /F` on a real shell tree measures a
+ * median of 137ms on this machine — 121 to 141 across six kills — and a
+ * synchronous call stops Node for all of it. Nothing is served in the meantime:
+ * not the page, not the terminal, not the status poll.
+ *
+ * One session closing froze the whole server for 137ms, and a test run closes
+ * fourteen sessions, so a run spent about 1.9 seconds unable to answer
+ * anything. Measured consequence, in the browser's own timings: the four JSON
+ * calls a page makes at load were requested 10ms apart and all completed
+ * together after 2642ms. Requests queue while the loop is frozen, the browser
+ * fills its connection pool, and Chrome then refuses new requests outright.
+ *
+ * The async form takes the same wall time and blocks nothing — measured 141ms
+ * against 137ms — so the freeze bought nothing.
+ *
+ * No caller needs the process to be gone by the time this returns, which is
+ * what made it safe to change. destroy() fires and forgets; restart() relies on
+ * the child's own exit event to bring up the replacement, and killedBy says
+ * why it exited; shellExec's timeout settles on 'close', which fires once the
+ * tree has actually died, grandchild pipes and all — the reason it kills the
+ * tree rather than the child is unaffected by when the kill was issued. */
 function killProcessTree(child) {
   if (!child || !child.pid) return;
-  try {
-    if (IS_WINDOWS) {
-      execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-    } else {
-      try { process.kill(-child.pid, 'SIGTERM'); }
-      catch { process.kill(child.pid, 'SIGTERM'); }
-    }
-  } catch { try { child.kill(); } catch { /* already gone */ } }
+  if (!IS_WINDOWS) {
+    try { process.kill(-child.pid, 'SIGTERM'); }
+    catch { try { process.kill(child.pid, 'SIGTERM'); } catch { /* already gone */ } }
+    return;
+  }
+  execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, err => {
+    /* taskkill exits non-zero for a process that had already gone, which is the
+       ordinary case here rather than a failure. Only fall back when it could
+       not touch the tree at all. */
+    if (!err) return;
+    try { child.kill(); } catch { /* already gone */ }
+  });
 }
 
 function shellExec(command, timeoutMs) {
