@@ -27,3 +27,9 @@ data/rule-proposals.json
 
 # scratch: chat uploads, swept an hour after they arrive
 data/inbox/
+
+# `npm start > server.log`, or a background start that redirects. The server's
+# log() goes to stdout, so whatever captures it captures a file that is different
+# on every machine and says nothing about the code. Left out on purpose.
+server.log
+nohup.out
