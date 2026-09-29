@@ -4490,8 +4490,25 @@ function applyStatus(st) {
     paintReview();
   }
 }
+/* One status request at a time, whoever asks.
+ *
+ * setInterval fires on the clock whatever is still in flight, and this page also
+ * calls refreshStatus() itself — once at startup and once more when the browser
+ * stream opens. Measured on a quiet server: the first two went out 7ms apart and
+ * each took about 105ms, so they were on the wire together; the steady state
+ * after that settled to one at a time at 15-47ms. Under load, where an answer
+ * takes longer than the 500ms tick, the two compound and the pile grows, and a
+ * pile is what ends in the browser refusing a request outright.
+ *
+ * A caller that asks while one is in flight joins it rather than adding to it.
+ * The answer it gets is at most one request old, which for a panel that redraws
+ * itself five times a second is the same answer. */
+let statusInFlight = null;
 function refreshStatus() {
-  return API.status().then(applyStatus).catch(() => {});
+  if (statusInFlight) return statusInFlight;
+  statusInFlight = API.status().then(applyStatus).catch(() => {})
+    .then(function (r) { statusInFlight = null; return r; });
+  return statusInFlight;
 }
 function setStatusPoll(ms) {
   clearInterval(pollTimer);
@@ -5589,6 +5606,31 @@ function termBusy(tab, on) {
 }
 
 function termConnect(tab) {
+  /* Drop whatever socket this tab already has, before opening another.
+   *
+   * Restarting is not the only way to get here twice. When a shell exits — the
+   * user types `exit`, the process dies, the server reports it — the server
+   * sends `exited` and leaves the socket open, so the tab still holds a live
+   * WebSocket to a shell that is gone. Pressing restart then went straight to
+   * `new WebSocket(...)` and overwrote tab.ws, and the old socket had no
+   * remaining reference on this side to close it: the page forgot it, and the
+   * server, which also keeps its end open after an exit, kept its half too.
+   * One restart, one socket gone on both sides.
+   *
+   * Measured: five restarts of one dead shell took the server from 15 open
+   * connections to 20. Each restart is one click, so the sockets are as easy to
+   * accumulate as shells were before the server stopped leaking them.
+   *
+   * The handlers are taken off the old socket before closing it, not after.
+   * `onclose` marks the tab dead and writes "[socket closed]", and `close` is
+   * asynchronous — a stale close landing after the new socket is up would blank
+   * out a shell that is running and print a lie about it. */
+  if (tab.ws) {
+    const old = tab.ws;
+    old.onopen = old.onmessage = old.onclose = old.onerror = null;
+    try { old.close(); } catch { /* already gone */ }
+    tab.ws = null;
+  }
   let ws;
   try {
     ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/shell");
