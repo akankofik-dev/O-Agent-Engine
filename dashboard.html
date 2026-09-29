@@ -3462,9 +3462,16 @@ function showApiError(e) { chatNote("error", String((e && e.message) || e)); }
    conversation means the end of it — so it runs at once rather than a frame late. */
 let CHAT_SCROLL_RAF = 0;
 let CHAT_SCROLL_PENDING = false;
+/* Where the log was last seen, so the scroll handler can tell which way the
+   reader moved. Derived from the distance alone it could not: see the handler. */
+let CHAT_LAST_TOP = 0;
 
 function chatScrollNow(force) {
   if (force || CHAT.pinned) chatLog.scrollTop = chatLog.scrollHeight;
+  /* Recorded here as well as in the handler, because this is the code that moves
+     the log without a reader's hand on it. A stale reading would make the next
+     real scroll look like it moved further than it did. */
+  CHAT_LAST_TOP = chatLog.scrollTop;
   const latest = $("chatLatest");
   if (latest) latest.hidden = CHAT.pinned;
 }
@@ -4257,7 +4264,20 @@ function wireChat() {
     });
   }
   if (chatLog) chatLog.addEventListener("scroll", () => {
-    CHAT.pinned = chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 36;
+    const top = chatLog.scrollTop;
+    /* Going back is the reader deciding to go back, and it is never overridden.
+       Re-deriving "pinned" from the distance to the bottom alone meant that
+       anywhere inside 36px of the bottom an upward scroll was undone on the same
+       frame: pinned became true, chatScroll snapped to the very end, and the
+       nudge vanished. Measured from the bottom of a 400-message log, twelve 8px
+       trackpad steps moved the reader zero pixels — the scroll felt frozen, and
+       a 40px wheel step lost its first frame before it worked at all.
+
+       Reading up always unpins. Only reading down near the bottom re-pins, which
+       is what following the conversation means. */
+    if (top < CHAT_LAST_TOP) CHAT.pinned = false;
+    else CHAT.pinned = chatLog.scrollHeight - top - chatLog.clientHeight < 36;
+    CHAT_LAST_TOP = top;
     chatScroll();
   }, { passive: true });
   if ($("chatLatest")) $("chatLatest").addEventListener("click", () => { CHAT.pinned = true; chatScroll(true); });
