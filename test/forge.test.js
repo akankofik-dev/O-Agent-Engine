@@ -899,6 +899,186 @@ function rm(p) { try { fs.rmSync(p, { recursive: true, force: true }); } catch {
     if (tools.toolByName('create_engine') !== forge.TOOL) throw new Error('create_engine does not resolve to the forge tool');
   });
 
+  console.log('\n  --- the require cache --------------------------------------');
+
+  /* Every check here happens inside this one process, on purpose. The bug was
+   * never visible to a child process: runTest() spawns one and reads the file
+   * from disk, so the test passed while the router kept serving the module that
+   * was already in memory. A test that spawns would have passed against the
+   * broken code, which is the whole failure being guarded against. */
+
+  await check('a rewritten engine is reloaded from disk, not answered from cache', async () => {
+    const id = 'rewrite-engine';
+    const dir = path.join(forge.ENGINES_DIR, id);
+    const file = path.join(dir, 'index.js');
+    rm(dir);
+
+    /* version one: proves itself with a marker only it can produce */
+    forge.create({
+      id, name: 'Rewrite', capability: 'mark',
+      body: "    return { mark: 'V1-' + String(action.text || '') };",
+      examples: [{ action: 'mark', text: 'x', expect: { mark: 'V1-x' } }],
+    });
+    const r1 = automation.createRouter({ driver, context, engines: automation.DEFAULT_ENGINES.slice() });
+    if (!forge.register(r1, id).ok) throw new Error('could not register version one');
+
+    const first = r1.BY_ID.get(id);
+    const ran1 = await first.execute({ action: 'mark', text: 'x' }, { agentTabId: 't', connected: true });
+    if (ran1.mark !== 'V1-x') throw new Error('version one did not run: ' + JSON.stringify(ran1));
+
+    /* it is now genuinely in this process's cache — that is the setup, and it
+       has to be asserted or the rest of this check proves nothing */
+    const cachedKey = require.resolve(file);
+    /* the cache holds the Module ({ id, path, exports, filename, … }); .exports
+       is what require() hands back and what the router is given. Comparing the Module
+       itself to the engine compares two different things and fails either way — which is
+       what the first version of this check did, and why it reported a missing cache for a
+       process that had one. */
+    if (!require.cache[cachedKey] || require.cache[cachedKey].exports !== first) {
+      throw new Error('version one is not in require.cache, so there is no cache to defeat');
+    }
+
+    /* version two, written over the same path by the forge's own path */
+    fs.writeFileSync(file,
+      fs.readFileSync(file, 'utf8').replace("'V1-' + String(action.text || '')", "'V2-' + String(action.text || '')"),
+      'utf8');
+    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
+      id, name: 'Rewrite', capability: 'mark', contract: forge.REQUIRED,
+      examples: [{ action: 'mark', text: 'x', expect: { mark: 'V2-x' } }],
+    }), 'utf8');
+
+    /* no restart, no new process: register again in this one */
+    const r2 = automation.createRouter({ driver, context, engines: automation.DEFAULT_ENGINES.slice() });
+    const again = forge.register(r2, id);
+    if (!again.ok) throw new Error('re-register refused: ' + again.reason);
+
+    const second = r2.BY_ID.get(id);
+    check('the re-registered engine is a different object than the cached one', () => {
+      if (second === first) throw new Error('the registry is still holding the cached module');
+    });
+    check('the file on disk is what the registry now runs', async () => {
+      const ran2 = await second.execute({ action: 'mark', text: 'x' }, { agentTabId: 't', connected: true });
+      if (ran2.mark !== 'V2-x') throw new Error('ran ' + JSON.stringify(ran2) + ' — the cache won');
+    });
+    check('the cache entry now points at the module the registry is using', () => {
+      if (!require.cache[cachedKey] || require.cache[cachedKey].exports !== second) {
+        throw new Error('require.cache was not refreshed to the module that is in use');
+      }
+    });
+    check('registering again did not make a duplicate', () => {
+      const n = r2.ENGINES.filter(e => e && e.id === id).length;
+      if (n !== 1) throw new Error(id + ' appears ' + n + ' times');
+    });
+
+    rm(dir);
+  });
+
+  await check('the test gate is not weakened by the cache fix', async () => {
+    /* the rewrite is only allowed because the test passed, so a rewrite whose
+       test fails has to stay refused even with the cache now being fresh */
+    const id = 'rewrite-bad';
+    const dir = path.join(forge.ENGINES_DIR, id);
+    rm(dir);
+    forge.create({
+      id, name: 'Bad', capability: 'mark',
+      body: "    return { mark: 'NEW-' + String(action.text || '') };",
+      examples: [{ action: 'mark', text: 'x', expect: { mark: 'OLD-x' } }],   /* lies */
+    });
+    const r = automation.createRouter({ driver, context, engines: automation.DEFAULT_ENGINES.slice() });
+    const out = forge.register(r, id);
+    rm(dir);
+    if (out.ok) throw new Error('a rewritten engine whose test fails was registered anyway');
+    if (!/FAIL/.test(out.output || '')) throw new Error('no test output: ' + JSON.stringify(out));
+  });
+
+  await check('only the rewritten engine loses its cache, not its neighbours', () => {
+    /* This is the "do not purge globally" half, measured. Two engines are
+       loaded, one is rewritten, and the other must come back as the very same
+       object — if the fix emptied the cache, this identity would break. */
+    const a = 'cache-a', b = 'cache-b';
+    for (const id of [a, b]) {
+      const d = path.join(forge.ENGINES_DIR, id);
+      rm(d);
+      forge.create({ id, name: id.toUpperCase(), capability: 'mark',
+        body: "    return { mark: '" + id + "-1' };",
+        examples: [{ action: 'mark', expect: { mark: id + '-1' } }] });
+    }
+    const r = automation.createRouter({ driver, context, engines: automation.DEFAULT_ENGINES.slice() });
+    forge.register(r, a); forge.register(r, b);
+    const keyA = require.resolve(path.join(forge.ENGINES_DIR, a, 'index.js'));
+    const keyB = require.resolve(path.join(forge.ENGINES_DIR, b, 'index.js'));
+    const before = { a: require.cache[keyA] && require.cache[keyA].exports, b: require.cache[keyB] && require.cache[keyB].exports };
+    if (!before.a || !before.b) throw new Error('neither engine was cached — the setup is wrong');
+
+    fs.writeFileSync(path.join(forge.ENGINES_DIR, a, 'index.js'),
+      fs.readFileSync(path.join(forge.ENGINES_DIR, a, 'index.js'), 'utf8').replace('cache-a-1', 'cache-a-2'), 'utf8');
+    forge.register(r, a);
+    const nowA = require.cache[keyA] && require.cache[keyA].exports;
+    const nowB = require.cache[keyB] && require.cache[keyB].exports;
+    if (nowA === before.a) throw new Error(a + ' kept its stale cache entry');
+    if (nowB !== before.b) throw new Error(b + ' lost its cache entry — the fix is purging more than it should');
+    const native = r.BY_ID.get('native-cdp');
+    if (!native || typeof native.execute !== 'function') throw new Error('native-cdp did not survive');
+
+    rm(path.join(forge.ENGINES_DIR, a));
+    rm(path.join(forge.ENGINES_DIR, b));
+  });
+
+  await check('a first-load registration still works, with no cache to defeat', () => {
+    const id = 'first-load';
+    const d = path.join(forge.ENGINES_DIR, id);
+    rm(d);
+    forge.create({ id, name: 'First', capability: 'mark',
+      body: "    return { mark: 'first' };",
+      examples: [{ action: 'mark', expect: { mark: 'first' } }] });
+    const r = automation.createRouter({ driver, context, engines: automation.DEFAULT_ENGINES.slice() });
+    const out = forge.register(r, id);
+    if (!out.ok) throw new Error('a normal first load was refused: ' + out.reason);
+    if (r.BY_ID.get(id).id !== id) throw new Error('not in the registry');
+    rm(d);
+  });
+
+  await check('the invalid-engine refusals are unchanged by the loader', () => {
+    const cases = [
+      ['no test', null],
+      ['bad contract', 'module.exports = { id: "x" };'],
+      ['not javascript', 'module.exports = { this is not javascript'],
+    ];
+    for (const [what, content] of cases) {
+      const id = 'bad-' + what.replace(/\W+/g, '-');
+      const d = path.join(forge.ENGINES_DIR, id);
+      rm(d);
+      fs.mkdirSync(d, { recursive: true });
+      fs.writeFileSync(path.join(d, 'manifest.json'), JSON.stringify({ id, name: id, capability: 'mark' }));
+      if (content) fs.writeFileSync(path.join(d, 'index.js'), content);
+      else fs.writeFileSync(path.join(d, 'index.js'),
+        'module.exports = { id: ' + JSON.stringify(id) + ', name: "x", type: "generated", capabilities: ["mark","act"], available: async () => ({available:true}), execute: async () => ({}), observe: async () => ({}), recover: async () => ({}) };');
+      const r = automation.createRouter({ driver, context, engines: automation.DEFAULT_ENGINES.slice() });
+      const out = forge.register(r, id);
+      if (out.ok) throw new Error('registered an engine that is ' + what);
+      rm(d);
+    }
+  });
+
+  await check('echo-engine is still there and still passes its own test', () => {
+    const d = path.join(forge.ENGINES_DIR, ECHO);
+    if (!fs.existsSync(d)) throw new Error('echo-engine is gone — the cache fix cannot be allowed to cost that');
+    const t = forge.runTest(ECHO);
+    if (!t.ok) throw new Error('echo-engine test now fails: ' + t.reason);
+  });
+
+  await check('the built-in engines were never routed through the new loader', () => {
+    /* The loader is for engines the forge writes. The four shipped ones are
+       required by ai/automation/index.js at module load and must not be evicted
+       from the cache underneath it. */
+    const src = fs.readFileSync(path.join(__dirname, '..', 'ai', 'automation', 'index.js'), 'utf8');
+    if (/loadEngineFile|require\.cache/.test(src)) throw new Error('the router now touches the require cache');
+    const r = automation.createRouter({ driver, context, engines: automation.DEFAULT_ENGINES.slice() });
+    for (const w of ['native-cdp', 'playwright-mcp', 'stagehand', 'browser-use']) {
+      if (!r.BY_ID.has(w)) throw new Error(w + ' is missing from a fresh router');
+    }
+  });
+
   console.log('\n  --- the router was not taught about any of this --------');
 
   await check('the router source was not taught about any of this', () => {
@@ -931,18 +1111,94 @@ function rm(p) { try { fs.rmSync(p, { recursive: true, force: true }); } catch {
     }
   });
 
-  await check('ai/tools.js and dashboard.html are byte-identical to HEAD', () => {
-    /* The two off-limits files that this milestone had no reason to touch and no
-       permission to touch. Measured against git, not asserted. */
-    let changed;
-    try {
-      changed = cp.execFileSync('git', ['diff', '--name-only', 'HEAD', '--', 'ai/tools.js', 'dashboard.html'],
-        { cwd: path.join(__dirname, '..'), encoding: 'utf8' }).trim();
-    } catch (e) {
-      if (e.code === 'ENOENT' || /not a git repository/i.test(String(e.stderr || e.message))) return;
-      throw new Error('git failed: ' + e.message);
+  await check('no engine tool is hardcoded into ai/tools.js', () => {
+    /* This replaces a byte-identity guard on ai/tools.js, which passed for as
+       long as the file must not change and failed the moment a change to it
+       was the work — the same trap dashboard.html walked into, and the reason
+       that one was replaced too.
+
+       The property that was actually being protected is narrower and still
+       holds: the engine tools are installed at runtime, not listed in the
+       file. A hardcoded entry would not fail a diff so much as quietly shadow
+       the installed one — the registry builds BY_NAME at load, and whichever
+       copy came first would be the one ai/engine.js reached. So the check now
+       looks for that, which a diff could not have told us. */
+    const text = fs.readFileSync(path.join(__dirname, '..', 'ai', 'tools.js'), 'utf8');
+    for (const name of ['create_engine', 'engine_execute', 'repair_engine', 'improve_engine',
+      'rollback_engine', 'engine_plan', 'engine_compose', 'engine_evolve']) {
+      if (new RegExp("name:\\s*'" + name + "'").test(text)) {
+        throw new Error(name + ' is hardcoded into ai/tools.js instead of installed at runtime');
+      }
     }
-    if (changed) throw new Error('modified and not supposed to be:\n         ' + changed.split('\n').join('\n         '));
+    /* and ai/tools.js does not reach for any of the modules that own these
+       tools, which would be wiring rather than installing */
+    for (const m of ['forge', 'lifecycle', 'discover', 'compose', 'evolve', 'evolve-tools']) {
+      if (new RegExp("require\\([^)]*'[^']*" + m).test(text)) {
+        throw new Error('ai/tools.js requires ' + m + ' — the tools must be installed into it, not wired into it');
+      }
+    }
+    /* the four shipped tools are still there, because they always were */
+    for (const name of ['browser_navigate', 'browser_read', 'browser_click']) {
+      if (!new RegExp("name:\\s*'" + name + "'").test(text)) {
+        throw new Error(name + ' is gone from ai/tools.js');
+      }
+    }
+  });
+
+  await check('the dashboard changed for the reconnect and for nothing else', () => {
+    /* What the reconnect fix is required to be, asserted so a later edit that
+       quietly reverts it fails here instead of on a user's machine. */
+    const html = fs.readFileSync(path.join(__dirname, '..', 'dashboard.html'), 'utf8');
+
+    /* a dropped stream is its own branch, and that branch goes and looks for
+       the run instead of concluding anything about it. It has to be a branch
+       of its own: the first version put the resume call at the bottom of the
+       error path, which painted a red Failed step and offered Try again and
+       then delivered the answer anyway. */
+    const dropBranch = /else if \(e instanceof TypeError\) \{([\s\S]*?)\n    \}/.exec(html);
+    if (!dropBranch) throw new Error('a network drop has no branch of its own');
+    const dropBody = dropBranch[1];
+    if (!/dropped = true;/.test(dropBody)) {
+      throw new Error('the drop branch does not mark the run as unresolved');
+    }
+    if (!/runResume\(\)\.catch\(\(\) => showChatNetwork\(true\)\)/.test(dropBody)) {
+      throw new Error('the drop branch does not hand over to the existing resume path');
+    }
+    /* and it paints nothing. The only thing known at that moment is that
+       contact was lost; a red step is a verdict about a run nobody has
+       asked the server about yet, and it was on screen beside the answer in
+       the version this replaces. */
+    if (/actPush\("error"/.test(dropBody)) {
+      throw new Error('the drop branch paints a failure');
+    }
+    if (/setChatStatus\("error"/.test(dropBody)) {
+      throw new Error('the drop branch sets an error status — the same mistake, quieter');
+    }
+    /* and it does not invent a verdict for a run that has not ended */
+    if (!/state: dropped \? "unknown" : halted/.test(html)) {
+      throw new Error('a dropped run is still being given a settled state');
+    }
+    if (!/if \(dropped\) \{ \/\* runResume owns the state/.test(html)) {
+      throw new Error('a dropped run is still being painted as ended');
+    }
+
+    /* a run that never ends has to stop saying it is still going */
+    if (!/const RUN_STALE_MS = 10 \* 60 \* 1000;/.test(html)) {
+      throw new Error('there is no ceiling on how long a run may claim to be going');
+    }
+    if (!/age > RUN_STALE_MS/.test(html)) {
+      throw new Error('the ceiling is declared but never used');
+    }
+
+    /* and the thing the fix was not allowed to do */
+    for (const word of ['setInterval(', 'new WebSocket(', 'EventSource(']) {
+      if (!html.includes(word)) continue;
+      const added = html.split(word).length - 1;
+      const before = cp.spawnSync('git', ['show', 'HEAD:dashboard.html'],
+        { cwd: path.join(__dirname, '..'), encoding: 'utf8' });
+      if (before.status === 0 && (before.stdout.split(word).length - 1) >= added) continue;
+      throw new Error('the reconnect fix added ' + word + ' — it must reuse the stream that was already there');
+    }
   });
 
   await check('the three files this milestone was allowed to touch carry only the change it was given', () => {

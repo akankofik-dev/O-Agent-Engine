@@ -350,3 +350,106 @@ Dan satu catatan yang harus jujur:dashboard 9847 baris dan `providers.js` punya
 nyaris nol coverage. Kalau agent nanti boleh mengubah kode, harness yang memverifikasi
 perubahan itu sendiri adalah bagian yang paling belum siap — lebih belum siap
 daripada mekanisme engine-nya.
+
+## 7. SELF-EVOLVE — Level 1 sampai 7
+
+Dokumen ini audit Milestone 1 dan kesimpulan tentang Milestone 2. Yang di bawah
+ini peta untuk level-level setelahnya: di mana modulnya, urutan yang boleh
+dijalankan, dan file mana yang menyimpan versi. **Argumen keamanan tidak
+diulang di sini** — itu milik modul yang=swap, dekat dengan aturannya, supaya
+tidak ada satu aturan yang ditulis di dua tempat dan diperbarui di salah satunya.
+
+### Tujuh level, satu urutan
+
+```text
+Level 1  USE         engine_execute                  forge.js
+Level 2  SELF-BUILD  create_engine, gate, registry   forge.js
+Level 3  SELF-REPAIR repair, versi, rollback         lifecycle.js
+Level 4  SELF-IMPROVE improve, compare, promote      lifecycle.js
+Level 5  SELF-DISCOVER survei kapabilitas, plan      discover.js
+Level 6  SELF-COMPOSE workflow, retry, trace         compose.js
+Level 7  SELF-EVOLVE orchestrator                    evolve.js
+```
+
+`evolve.js` tidak mengimplementasikan apa pun. Dia hanya menentukan modul mana
+yang dipanggil dan dalam urutan apa — dan itu justru bagian yang paling bisa
+salah tanpa ada gate di belakangnya, karena orchestrator yang membangun saat plan
+bilang jangan adalah bug yang tidak bisa ditangkap modul mana pun.
+
+### Enam modul
+
+| Modul | Tugas | Ukuran |
+|---|---|---|
+| `forge.js` | gate, scaffold, registry, `create_engine` + `engine_execute` | 1106 baris |
+| `lifecycle.js` | repair, improve, promote, rollback, versi | 390 baris |
+| `discover.js` | survei kapabilitas, `plan`, `guardBuild` | 244 baris |
+| `compose.js` | workflow, `$prev`/`$steps`, retry, trace | 358 baris |
+| `evolve.js` | urutan lifecycle, trace capability | 309 baris |
+| `evolve-tools.js` | enam tool agent | 388 baris |
+
+Tiga di antaranya tidak boleh bisa melakukan pekerjaan yang bukan tugasnya, dan itu
+diuji, bukan dijanjikan:
+
+- `discover.js` **tidak require `forge` sama sekali.** Planner yang bisa build
+  adalah builder yang bisa mengobral dirinya sendiri. Yang diuji: file itu tidak
+  mengandung `require('./forge')`, `forge.create`, `forge.build`, atau
+  `child_process`.
+- `compose.js` **tidak menyentuh file.** Satu-satunya jalan ke engine adalah
+  `router.route()` — yang sama dengan yang dipakai browser, sehingga policy URL
+  Milestone 2A, pemeriksaan context, availability, dan cooldown tetap berlaku
+  untuk langkah workflow seperti untuk panggilan biasa.
+- `evolve.js` **tidak menulis file, tidak menjalankan proses anak, tidak
+  menyentuh `require.cache`.** Dia memesan; modul yang dipesan yang
+  menjalankan.
+
+### Layout disk
+
+```text
+engines/
+  <id>/
+    manifest.json  index.js  test.js     <- versi aktif
+    .versions/<stamp>/                    <- setiap versi aktif yang pernah ada
+  .candidate-<id>-<stamp>/                <- kandidat, sedang diuji
+```
+
+Kandidat berawalan titik, jadi `engineDirectories()` melewatinya dan `ls` tidak
+membuat orang melewatinya. Panjangnya sedalam folder engine, bukan di dalamnya,
+dan itu yang membuat `require('../../ai/automation/context')` di engine yang
+dihasilkan resolve ke tempat yang sama — sehingga kandidat **diuji dengan
+menjalankannya**, bukan dengan meniru apa artinya menjalankan.
+
+Perhatikan arahnya: `engines/<id>/` berisi versi aktif, dan `create_engine`
+tetap menolak menimpanya. Snapshot hanya ditulis oleh `lifecycle.js`, hanya
+setelah kandidat lulus gate.
+
+### Sepuluh tool, satu izin
+
+`create_engine`, `engine_execute` (Level 2) plus `repair_engine`,
+`improve_engine`, `rollback_engine`, `engine_plan`, `engine_compose`,
+`engine_evolve` (Level 3-7). Semuanya di balik satu kunci izin: `engines`.
+
+Satu izin, bukan delapan, karena izin yang memisahkan "boleh menulis engine"
+dari " boleh menjalankan engine" menghasilkan profil yang bisa memperbaiki engine
+yang baru ia bangun tetapi tidak bisa menjalankannya — dan itu bukan perbedaan yang
+diingin siapa pun. Yang diuji: setiap tool punya tepat satu cap, dan keenamnya
+ditawarkan **hanya** ke profil yang punya kunci itu.
+
+Semuanya dipasang saat runtime, bukan ditulis ke `ai/tools.js`. Alasannya
+terukur: `BY_NAME` dibangun sekali saat modul dimuat, jadi entri yang
+ditambahkan sesudahnya tidak akan pernah ditemukan. Yang dijaga sekarang
+adalah properti aslinya — tidak ada entri engine yang di-hardcode — karena
+entri hardcode tidak akan ketahuan oleh `git diff`, melainkan diam-diam
+men.Override yang terpasang.
+
+### Yang diukur, bukan yang dijanjikan
+
+| | |
+|---|---|
+| `npm test` | 340 passed / 17 suite / 59.4s |
+| `forge.test.js` | 70 — gate, registry, cache, guard |
+| `lifecycle.test.js` | 22 — repair sukses/gagal, built-in ditolak, rollback, cache |
+| `discover.test.js` | 14 — survei, plan, dan guard yang menolak build kedua |
+| `compose.test.js` | 20 — rantai, kegagalan, retry, trace, cooldown |
+| `evolve.test.js` | 20 — 7 kasus acceptance, capability discover sampai rollback |
+| `evolve-tools.test.js` | 21 — keterlacakan tool, penolakan, satu izin |
+| E2E lewat agent | 12 passed — `/api/agent/run` → `ai/engine.js` → tool → forge → disk → test → registry → router → engine |

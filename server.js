@@ -39,6 +39,7 @@ const aiCompat = require('./ai/compat');
 const aiAttachments = require('./ai/attachments');
 const aiAutomation = require('./ai/automation');
 const forge = require('./forge');
+const evolveTools = require('./evolve-tools');
 const browserSession = require('./ai/browser/session');
 const agentRuns = require('./ai/runs').createRunRegistry();
 
@@ -2447,6 +2448,22 @@ try {
   forge.installTool(automation);
 } catch (e) {
   logErr('could not install create_engine:', e.message);
+}
+
+/* The six tools for the rest of the lifecycle — repair, improve, rollback,
+   plan, compose and evolve — installed the same way and behind the same
+   `engines` permission. Not a second permission on purpose: a profile allowed
+   to repair an engine it built but not to run one describes a distinction
+   nobody wants, and it is the same power as create_engine either way.
+
+   install() here records the router and pushes definitions. It runs no test,
+   starts no workflow and gives no profile a tool on its own — every one of
+   those happens inside a call, behind the gate that already governs
+   create_engine. */
+try {
+  evolveTools.install(automation);
+} catch (e) {
+  logErr('could not install the lifecycle tools:', e.message);
 }
 
 function automationEndpoints(profile) {

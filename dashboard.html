@@ -4005,6 +4005,10 @@ async function sendMessage() {
   let sawText = false;
   let halted = false;          // the user pressed stop, not a failure
   let errored = false;         // the provider or a tool said no
+  /* The stream stopped but the server may not have. Set only by a network
+   * drop, and it means one thing to the rest of this function: do not
+   * conclude anything about the run yet, because the run has not ended. */
+  let dropped = false;
   let truncated = false;       // it hit the round limit — the task is not done
 
   try {
@@ -4089,6 +4093,28 @@ async function sendMessage() {
     }
   } catch (e) {
     if (e.name === "AbortError") { halted = true; actPush("stopped"); addMsg("a", "Stopped.", { label: "Stopped" }); }
+    else if (e instanceof TypeError) {
+      /* A dropped connection is not a failed run. From in here the two look
+         identical — the stream stopped either way — but the server was never
+         told, and ai/runs.js keeps the run and its events for exactly this,
+         so a page can come back to a turn that is still going instead of
+         being told it failed.
+
+         Nothing is painted here. The earlier version of this branch sat at
+         the bottom of the error path, which meant the activity showed a red
+         "Failed" and offered "Try again" and then delivered the answer
+         anyway — two contradictory facts, and the one that arrives first is
+         the one believed. What is known at this point is that contact was
+         lost, and nothing about the run.
+
+         runResume() is the same call the reconnect button makes and the same
+         one page load makes: no new mechanism, no new words. It replays the
+         events this page missed and hands over to runWait if the run is
+         alive, or settles the page with what really happened if it is not. */
+      dropped = true;
+      showChatNetwork(true);
+      runResume().catch(() => showChatNetwork(true));
+    }
     else {
       errored = true;
       /* "bad" from the first push, not "now": a step that has already failed
@@ -4120,14 +4146,17 @@ async function sendMessage() {
         chatNote("error", String((e && e.message) || e), { retry: (e && e.retryable) || e instanceof TypeError ? retryLastMessage : null });
         if (e && e.retryable) switchModelLink("Try again, or use another model");
       }
-      if (e instanceof TypeError) showChatNetwork(true);
     }
   } finally {
     // whatever happened, the session knows: running, done, stopped or failed
-    runRemember({ state: halted ? "stopped" : errored ? "failed" : "done" });
+    // a dropped run has no verdict yet, and claiming one is the whole bug
+    runRemember({ state: dropped ? "unknown" : halted ? "stopped" : errored ? "failed" : "done" });
     tools.finish();
     // a run always ends in a settled state: nothing is left saying "Thinking"
-    if (errored) actPush("error", "bad");
+    // a run always ends in a settled state: nothing is left saying "Thinking"
+    // — unless it has not ended, which is exactly what a drop means
+    if (dropped) { /* runResume owns the state until the run really settles */ }
+    else if (errored) actPush("error", "bad");
     else if (halted || truncated) actPush("stopped", "ok");
     else actPush("done", "ok");
     actSave();
@@ -4152,7 +4181,9 @@ async function sendMessage() {
        carries the damage, so the gap is closed here with what actually
        happened. Without this, one stop and one provider refusal leave a
        conversation that stays broken for the rest of its life. */
-    if (askedAt >= 0 && HIST.length === askedAt + 1 && HIST[askedAt].role === "user") {
+    // a run still in flight has not failed, so it must not leave a gap in the
+    // conversation claiming it did — the answer is still coming
+    if (!dropped && askedAt >= 0 && HIST.length === askedAt + 1 && HIST[askedAt].role === "user") {
       HIST.push({
         role: "assistant",
         content: halted ? "(stopped before it answered)" : "(this turn failed — no answer was received)",
@@ -8111,6 +8142,8 @@ function runSettle(st, tail) {
   else if (st.failed) actPush("error", "bad");
   else actPush("done", "ok");
   actSave();
+  // the run is over, so "the connection dropped" is no longer true of it
+  showChatNetwork(false);
   runRemember({ state: st.stopped ? "stopped" : st.failed ? "failed" : "done" });
   setChatBusy(false);
 }
@@ -8175,6 +8208,9 @@ async function runResume() {
  * server already has, not a second agent run and not a new stream — and it
  * only asks while the run is genuinely still going.
  */
+/* How long a page will go on believing a run is still going. */
+const RUN_STALE_MS = 10 * 60 * 1000;
+
 function runWait(runId) {
   clearTimeout(RUN.timer);
   const tick = async () => {
@@ -8194,7 +8230,33 @@ function runWait(runId) {
       runWait(runId);
       return;
     }
-    if (st.running) { runWait(runId); return; }
+    if (st.running) {
+      /* A run that has said "still going" for this long, without ever
+         ending, is not still going. The registry only learns a run ended
+         from a final or an error event (ai/runs.js:116), so a loop that
+         died without either keeps reporting running forever, holds the
+         one-at-a-time lock, and answers 409 to every new run. Measured on
+         a real stuck run here: 25 events, no final, no error, 480 seconds
+         old and still going. Believing it is how the page sat on
+         "Still working — reconnecting" with nothing behind it.
+
+         Ten minutes is deliberately generous. A page cannot tell a hung
+         run from one legitimately waiting on a slow provider or a long
+         browser action, and a wrong "it failed" is worse than a slow
+         "it is still working" — it sends someone to look at work that was
+         fine. So the ceiling is high, it is on the run the server itself
+         reported, and it settles through the existing path: no invented
+         event, just the real tail and a real failed state. */
+      const age = st.startedAt ? Date.now() - st.startedAt : 0;
+      if (age > RUN_STALE_MS) {
+        chatNote("error", "The server stopped reporting on this run after "
+          + Math.round(age / 60000) + " minutes without finishing it. The run is not coming back — stop it and send the message again.");
+        runSettle({ failed: true, stopped: false }, runTail(st));
+        return;
+      }
+      runWait(runId);
+      return;
+    }
     runSettle(st, runTail(st));
   };
   RUN.timer = setTimeout(tick, 1200);

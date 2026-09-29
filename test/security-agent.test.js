@@ -41,12 +41,71 @@ function token() {
   catch { return null; }
 }
 
-function api(p, { method = 'GET', body, tok, origin = LOCAL } = {}) {
+/**
+ * Start an agent run, read the one event that answers the credential
+ * question, and stop the run again.
+ *
+ * The status line is still the answer — 401 without a token, 200 with one — and
+ * it arrives before anything else. What a 200 additionally means here is that
+ * the server is now working on a turn, and a run nobody is watching holds the
+ * one-at-a-time lock until it finishes. Hanging up without stopping it is how a
+ * test suite leaves a ghost and the next person is answered with 409, so the run
+ * is cancelled on the way out.
+ *
+ * One event is read rather than zero, because cancelling needs a name: the first
+ * event the server sends is the one that carries the runId.
+ */
+function apiRunThenStop(p, { body, tok, origin = LOCAL, timeout = 15000 } = {}) {
   return new Promise((resolve, reject) => {
     const headers = { origin };
     if (tok) headers['x-octop-token'] = tok;
     if (body) { headers['content-type'] = 'application/json'; headers['content-length'] = Buffer.byteLength(body); }
-    const req = http.request({ host: HOST, port: PORT, path: p, method, headers, timeout: 8000 }, res => {
+
+    const answer = { status: 0, contentType: '', runId: '' };
+    let settled = false;
+    let req = null;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      try { if (req) req.destroy(); } catch { /* already gone */ }
+      if (!answer.runId) { resolve(answer); return; }
+      /* stop the run this just started, so the next caller is not told 409 */
+      const c = JSON.stringify({ runId: answer.runId });
+      const cancel = http.request({
+        host: HOST, port: PORT, path: '/api/agent/cancel', method: 'POST',
+        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(c), 'x-octop-token': tok, origin },
+      }, cr => { cr.resume(); cr.on('end', () => resolve(answer)); });
+      cancel.on('error', () => resolve(answer));
+      cancel.on('timeout', () => { cancel.destroy(); resolve(answer); });
+      cancel.end(c);
+    };
+
+    req = http.request({ host: HOST, port: PORT, path: p, method: 'POST', headers, timeout }, res => {
+      answer.status = res.statusCode;
+      answer.contentType = res.headers['content-type'] || '';
+      let buf = '';
+      res.on('data', d => {
+        buf += String(d);
+        const m = buf.match(/"runId":"([^"]+)"/);
+        if (m) { answer.runId = m[1]; finish(); }
+      });
+      res.on('end', finish);
+      res.on('error', finish);
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+function api(p, { method = 'GET', body, tok, origin = LOCAL, timeout = 8000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const headers = { origin };
+    if (tok) headers['x-octop-token'] = tok;
+    if (body) { headers['content-type'] = 'application/json'; headers['content-length'] = Buffer.byteLength(body); }
+    const req = http.request({ host: HOST, port: PORT, path: p, method, headers, timeout }, res => {
       let b = '';
       res.on('data', c => { b += c; });
       res.on('end', () => {
@@ -96,17 +155,35 @@ function api(p, { method = 'GET', body, tok, origin = LOCAL } = {}) {
   });
 
   /* --- with a credential, the old answer must survive ------------------- */
-
   await check('a valid token gets the real answer about configuration', async () => {
     const t = token();
     if (!t) throw new Error('no token issued, cannot test the authenticated path');
-    const r = await api('/api/agent/run', { method: 'POST', body: JSON.stringify({ text: 'halo' }), tok: t });
+    /* The credential is decided at the status line — measured at 5ms with a
+       valid token and 14ms without one — so this reads from there and hangs
+       up. Waiting for the body meant waiting on the provider, and a turn that
+       took longer than the suite's ceiling was reported as though the token
+       gate had broken. It had not; the provider was just slow. */
+    const r = await apiRunThenStop('/api/agent/run', { body: JSON.stringify({ text: 'halo' }), tok: t });
     if (r.status === 401) throw new Error('a valid token was refused');
-    /* With no profile configured this is the sentence the page has always
-       shown. The point is that it is now only reachable by someone who proved
-       they belong here. */
-    if (r.status !== 400) throw new Error('expected the configuration 400, got ' + r.status + ': ' + r.body);
-    if (!/profile/i.test(r.body)) throw new Error('the message the page depends on changed: ' + r.body);
+    if (r.status === 403) throw new Error('a valid token was refused as forbidden');
+
+    /* Every other answer here is the product's own, and each one says the
+       request got past the gate. 200 with the event stream is the agent route
+       opening for a caller that proved it belongs; 400 is the sentence the
+       page shows when no agent is configured; 409 is the run lock, which is
+       also a real answer and also not an auth one. */
+    if (r.status === 200) {
+      if (!/text\/event-stream/.test(r.contentType)) {
+        throw new Error('a 200 that is not the event stream the page reads: ' + r.contentType);
+      }
+      return;
+    }
+    /* a 200 here started a real turn, so this check has to be the reason it
+       stops: a test suite must not leave a live run holding the lock, or the
+       next thing anybody tries is answered with 409. */
+    if (!r.runId) throw new Error('the run never named itself, so it could not be stopped');
+    if (r.status === 409) return;   // a run is in progress — a real answer, not an auth one
+    if (r.status !== 400) throw new Error('expected a real answer, got ' + r.status);
   });
 
   await check('an unknown profile id is a 4xx that is not an auth answer', async () => {

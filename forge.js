@@ -162,9 +162,12 @@ function list() {
     let capabilities = [];
     if (m && Array.isArray(m.capability)) capabilities = m.capability.slice();
     else if (m && m.capability) capabilities = [m.capability];
-    if (verdict.ok) {
-      try { capabilities = require(path.join(dir, 'index.js')).capabilities || capabilities; }
-      catch { /* canRegister already refused it; the manifest's claim stands */ }
+    /* verify() already loaded the module and put it on the verdict, so this
+       reads it off there instead of asking require() a second time. Two
+       asks for one file in one pass is how the two copies drift apart, and
+       a second require() would have been answered out of the cache. */
+    if (verdict.ok && verdict.engine && Array.isArray(verdict.engine.capabilities)) {
+      capabilities = verdict.engine.capabilities.slice();
     }
 
     out.push({
@@ -407,9 +410,27 @@ function create(spec) {
  * script that never ran also does.
  */
 function runTest(id) {
-  const dir = engineDir(id);
+  let dir;
+  try { dir = engineDir(id); }
+  catch (e) { return { ok: false, reason: e.message }; }
+  const r = runTestIn(dir, path.basename(dir));
+  return r.ok ? { ok: true, reason: r.reason, output: r.output } : r;
+}
+
+/**
+ * The gate itself, for any directory that holds a manifest/index/test trio.
+ *
+ * Deliberately the same three conditions and in the same order, because a
+ * second set of rules for "did the candidate pass" would be a gate that can
+ * disagree with the real one — and a promotion decided by the laxer of two
+ * gates is the whole thing being unsafe.
+ *
+ * @param {string} dir   an absolute directory containing test.js
+ * @param {string} label how to name that directory in a refusal
+ */
+function runTestIn(dir, label) {
   const file = path.join(dir, 'test.js');
-  if (!fs.existsSync(file)) return { ok: false, reason: 'there is no test.js in ' + path.basename(dir) };
+  if (!fs.existsSync(file)) return { ok: false, reason: 'there is no test.js in ' + (label || dir) };
 
   const r = spawnSync(process.execPath, [file], {
     cwd: dir,
@@ -460,6 +481,44 @@ function canRegister(id) {
 }
 
 /**
+ * Load an engine from disk, from the bytes on disk and nothing else.
+ *
+ * Node caches modules by resolved path, and that cache outlives the file it
+ * was built from. So the second time anything required
+ * engines/<id>/index.js in this process, it got the first version back —
+ * even after create_engine had written a new one over it. The test runner
+ * was not fooled by that, because runTest() spawns a process and reads the
+ * file: it passed. What the router ended up holding was the old module, and
+ * the gate had said yes to it. Measured: register() reported "its test
+ * passed" and engine_execute answered {"uppercased":"UNDEFINED"} for an
+ * action the new file turns into a string.
+ *
+ * The fix is to drop the one entry before asking again, so a rewritten
+ * engine is verified and installed as the file that is actually there.
+ *
+ * Three things this deliberately does not do, because each is a bigger
+ * problem than the one being solved:
+ *   - it does not purge the cache. Only this file's own entry goes, so the
+ *     built-in engines, the shared context module and every other engine
+ *     loaded in this process keep the exact object they already had.
+ *   - it does not touch the module the router is currently serving. That
+ *     object keeps working until installIntoRegistry() swaps it, so a
+ *     reload cannot blank a running engine mid-call.
+ *   - it does not skip the test. The cache fix changes which module gets
+ *     verified; it has no bearing on whether it has to pass.
+ */
+function loadEngineFile(dir) {
+  const file = path.join(dir, 'index.js');
+  /* resolve() first, and use its answer as the cache key: on Windows the
+     case and the path shape can differ from the string we joined, and
+     deleting a key that is not the one require() uses would evict nothing
+     and still return the stale module. */
+  const key = require.resolve(file);
+  delete require.cache[key];
+  return require(key);
+}
+
+/**
  * The whole judgement about one engine, made once.
  *
  * Everything that needs to know whether an engine is allowed in — list(),
@@ -483,7 +542,7 @@ function verify(id) {
   if (!fs.existsSync(path.join(dir, 'index.js'))) return { ok: false, reason: 'no index.js' };
 
   let engine;
-  try { engine = require(path.join(dir, 'index.js')); }
+  try { engine = loadEngineFile(dir); }
   catch (e) { return { ok: false, reason: 'index.js did not load: ' + String(e.message).slice(0, 160) }; }
 
   const bad = contractErrors(engine);
@@ -683,6 +742,16 @@ function build(router, spec) {
   if (!made.ok) return { ok: false, stage: 'create', ...made };
   const verdict = canRegister(made.id);
   if (!verdict.ok) {
+    /* Kept on disk, on purpose. The folder is the error message: a person can
+       read the test output there and edit it, and an earlier version of this
+       deleted it, which broke a passing test in forge.test.js and was wrong —
+       deleting the only copy of what went wrong helps nobody. Nothing is
+       registered, which is the part that matters for safety, and the next
+       create() for the same id refuses with "there is already an engine
+       called ... — edit it instead", which is the correct next step for a
+       person. lifecycle.js deletes a *candidate*, which is a different thing:
+       nobody was ever meant to see that, and it is not a working engine being
+       replaced. */
     return { ok: false, stage: 'test', id: made.id, registered: false, reason: verdict.reason, output: verdict.output || '', dir: made.dir };
   }
   const reg = register(router, made.id);
@@ -1030,7 +1099,7 @@ function permissionGap() {
 
 module.exports = {
   ENGINES_DIR, ID_RE, REQUIRED, TEST_TIMEOUT_MS, TOOL, TOOL_CAP,
-  survey, list, scaffold, create, runTest, verify, canRegister, register, registerAll,
+  survey, list, scaffold, create, runTest, runTestIn, verify, canRegister, register, registerAll,
   unregister, build, engineDir, engineDirectories,
   installTool, installed, permissionGap, EXECUTE_TOOL, runOnEngine,
 };
