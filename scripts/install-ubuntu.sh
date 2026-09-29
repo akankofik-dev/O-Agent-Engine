@@ -41,16 +41,24 @@ as_root apt-get install -y \
   libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 libcups2 \
   libgtk-3-0 libpango-1.0-0 libcairo2 fonts-liberation xdg-utils
 
-printf 'Installing Octop Browser Automation in %s\n' "$ROOT"
+printf 'Installing O Agent in %s\n' "$ROOT"
 node "$ROOT/scripts/get-browser.js"
 
 SERVICE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-SERVICE_FILE="$SERVICE_DIR/octop-browser-automation.service"
+SERVICE_NAME="o-agent.service"
+SERVICE_FILE="$SERVICE_DIR/$SERVICE_NAME"
+# The unit used to be octop-browser-automation.service. Renaming it is the right
+# name and the wrong moment to drop it silently: an already-installed machine has
+# the old unit linked AND enabled, and leaving it there gives two units that both
+# want port 8787 — the second one loses the bind and restart-loops. So the old
+# name is retired explicitly, before the new one is written.
+OLD_SERVICE_NAME="octop-browser-automation.service"
+OLD_SERVICE_FILE="$SERVICE_DIR/$OLD_SERVICE_NAME"
 NODE_BIN="$(command -v node)"
 mkdir -p "$SERVICE_DIR"
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=Octop Browser Automation
+Description=O Agent
 After=network-online.target
 
 [Service]
@@ -68,8 +76,15 @@ WantedBy=default.target
 EOF
 
 if command -v systemctl >/dev/null 2>&1 && systemctl --user daemon-reload >/dev/null 2>&1; then
-  systemctl --user enable --now octop-browser-automation.service
-  printf '\nOctop is running at http://127.0.0.1:8787\n'
+  if [ -e "$OLD_SERVICE_FILE" ] || systemctl --user cat "$OLD_SERVICE_NAME" >/dev/null 2>&1; then
+    printf 'Retiring the old %s\n' "$OLD_SERVICE_NAME"
+    systemctl --user disable --now "$OLD_SERVICE_NAME" >/dev/null 2>&1 || true
+    rm -f "$OLD_SERVICE_FILE"
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    systemctl --user reset-failed "$OLD_SERVICE_NAME" >/dev/null 2>&1 || true
+  fi
+  systemctl --user enable --now "$SERVICE_NAME"
+  printf '\nO Agent is running at http://127.0.0.1:8787\n'
   printf 'Readiness: curl -fsS http://127.0.0.1:8787/api/ready\n'
 else
   printf '\nCreated %s\n' "$SERVICE_FILE"
