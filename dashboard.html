@@ -3244,16 +3244,109 @@ const hostOf = u => {
   catch { return String(u).slice(0, 44); }
 };
 
+/* Requests that never reached the server, and the reason they were invisible.
+ *
+ * Nearly every call site in this file ends in something like .catch(() => {}).
+ * That is right for a status poll or a best-effort refresh and wrong for the
+ * rest: when the browser refuses to send a request at all, fetch rejects with a
+ * bare TypeError that carries no URL, and that promise landed in a handler which
+ * threw it away. Nothing was logged, nothing was shown, and the request never
+ * reached the server either — so there was no trace on either side. That is the
+ * whole reason a tab could report ERR_INSUFFICIENT_RESOURCES all afternoon and
+ * leave nothing behind to look at.
+ *
+ * Only network-level rejections are kept. An HTTP error is an answer: the server
+ * replied, and API.get/post throw it with the path and the status where the app
+ * can deal with it. A rejected fetch is the absence of an answer, and that is
+ * the one worth keeping.
+ *
+ * The record holds what would separate the candidate causes: how many requests
+ * were open at that moment, whether the tab was hidden — a background tab is
+ * throttled — and the state of the sockets the page holds, since a refusal at
+ * the connection layer is most likely about those.
+ */
+const NETF_KEY = "octop:netfail";
+const NETF_MAX = 40;
+const NETF_HEAD = 10;
+let netfOpen = 0;
+let netfLastLog = 0;
+let netfSinceLog = 0;
+
+function netfSockets() {
+  const out = [];
+  /* typeof, not a bare read: a request can fail during startup, before the
+     stream and the terminal are declared, and that failure is worth recording
+     most of all */
+  if (typeof STREAM !== "undefined" && STREAM && STREAM.ws) out.push("stream:" + STREAM.ws.readyState);
+  if (typeof TERM !== "undefined" && TERM && TERM.tabs) {
+    for (const t of TERM.tabs.values()) if (t && t.ws) out.push("term:" + t.ws.readyState);
+  }
+  return out;
+}
+
+function netfRecord(path, err) {
+  const rec = {
+    at: new Date().toISOString(),
+    path: String(path),
+    err: String((err && err.message) || err),
+    open: netfOpen,
+    hidden: !!document.hidden,
+    online: navigator.onLine,
+    sockets: netfSockets(),
+  };
+  try {
+    const list = JSON.parse(sessionStorage.getItem(NETF_KEY) || "[]");
+    list.push(rec);
+    let out = list;
+    /* Both ends, not just the tail. A refusal that runs for minutes is the case
+       this exists for, and keeping only the newest records throws away the one
+       that matters most: the first, which is when the condition started and what
+       the page looked like just before it did. The gap in the middle is counted
+       rather than silently lost, so a reader can tell a gap from a break. */
+    if (list.length > NETF_MAX) {
+      const head = list.slice(0, NETF_HEAD);
+      const tail = list.slice(-(NETF_MAX - NETF_HEAD));
+      head.push({ gap: list.length - head.length - tail.length });
+      out = head.concat(tail);
+    }
+    sessionStorage.setItem(NETF_KEY, JSON.stringify(out));
+  } catch (e) { /* private mode or quota */ }
+  /* Every failure is recorded; not every failure is announced. A status poll
+     goes out twice a second, so a refused one would otherwise fill the console
+     with the same line until the cause was found, which is the opposite of
+     making it easier. The counter says how many were folded into this line, so
+     nothing is lost — the sessionStorage ring above has all of them. */
+  netfSinceLog++;
+  const now = Date.now();
+  if (now - netfLastLog >= 2000) {
+    console.warn("[net-fail] " + rec.path + " — " + rec.err +
+      " | open=" + rec.open + " hidden=" + rec.hidden + " online=" + rec.online +
+      " sockets=" + (rec.sockets.join(",") || "none") +
+      (netfSinceLog > 1 ? " (+" + (netfSinceLog - 1) + " more)" : ""));
+    netfLastLog = now;
+    netfSinceLog = 0;
+  }
+  return rec;
+}
+
+function apiFetch(path, init) {
+  netfOpen++;
+  return fetch(path, init).then(
+    r => { netfOpen--; return r; },
+    e => { netfOpen--; netfRecord(path, e); throw e; }
+  );
+}
+
 const API = {
   async get(path) {
-    const res = await fetch(path, { headers: { accept: "application/json" } });
+    const res = await apiFetch(path, { headers: { accept: "application/json" } });
     const text = await res.text();
     let data = null; try { data = JSON.parse(text); } catch {}
     if (!res.ok) throw new Error((data && data.error) || (path + " → " + res.status));
     return data;
   },
   async post(path, body) {
-    const res = await fetch(path, {
+    const res = await apiFetch(path, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify(body || {})
     });
@@ -3262,7 +3355,7 @@ const API = {
     if (!res.ok) throw new Error(data.error || (path + " → " + res.status));
     return data;
   },
-  put: (path, body) => fetch(path, {
+  put: (path, body) => apiFetch(path, {
     method: "PUT", headers: { "content-type": "application/json" },
     body: JSON.stringify(body || {})
   }).then(async r => {
@@ -3271,7 +3364,7 @@ const API = {
     if (!r.ok) throw new Error(data.error || (path + " → " + r.status));
     return data;
   }),
-  del: path => fetch(path, { method: "DELETE", headers: { accept: "application/json" } })
+  del: path => apiFetch(path, { method: "DELETE", headers: { accept: "application/json" } })
     .then(async r => {
       const t = await r.text();
       let d; try { d = JSON.parse(t); } catch { d = { error: t }; }
