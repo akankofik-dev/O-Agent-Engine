@@ -345,7 +345,11 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
    18px rather than 20: at a 720px measure the column has air to spare, and a
    wider gutter on both sides is what makes a chat look padded rather than
    placed. */
-.chat { --oc-measure:720px; --oc-gutter:calc(18px * var(--fn-dens));
+/* 48rem is OpenCode's --container-3xl, the width a conversation is read at, read
+   out of the app.asar on this machine. It was 720px here, which is 45rem — a
+   measure that is right for a page and short for a transcript, and it is why the
+   answer text has to break sooner than it wants to. */
+.chat { --oc-measure:48rem; --oc-gutter:calc(18px * var(--fn-dens));
   /* the reading inset: the gutter, widened to centre a measure of --oc-measure
      on a wide surface. Written out longhand three times it had already drifted
      from the fourth place that had its own number, which is how the float
@@ -1362,7 +1366,12 @@ body.tab-chat .wb-head { display:none; }
 .chat-network button { margin-left:auto; border:1px solid var(--fn-border-input-alt); background:transparent; color:var(--fn-text-primary);
   border-radius:calc(4px * var(--fn-radius-scale)); padding:3px 7px; cursor:pointer; font:inherit; font-size:10.5px; }
 .chatinner, .chatinner2 { max-width:var(--oc-measure); margin:0 auto; width:100%; }
-.chatinner { display:flex; flex-direction:column; gap:14px; padding:0 var(--oc-gutter); }
+/* The gap between turns was 14px against a 1.55 line height, so two exchanges
+   read as a list of eight items rather than as a conversation. At a 1.8 line
+   height a turn needs about twice the gap to separate at all, and the 16px of
+   space between the name and the sentence below it is what lets the eye find the
+   boundary without a rule. */
+.chatinner { display:flex; flex-direction:column; gap:28px; padding:0 var(--oc-gutter); }
 
 /* The vertical rhythm of a conversation, in two levels and no more.
  *
@@ -1405,24 +1414,69 @@ body.tab-chat .wb-head { display:none; }
  * is for. The time goes with it, because a run of three messages does not need
  * three timestamps to say when it happened. */
 .msg.same .msghead { display:none; }
-.msg .who { font-size:10px; font-weight:550; letter-spacing:.04em; text-transform:uppercase; color:var(--fn-text-tertiary); }
-.msg .time { font-size:10px; color:var(--fn-text-quaternary); font-variant-numeric:tabular-nums; margin-left:auto; }
-.msg .body { font-size:14px; line-height:1.55; color:var(--fn-text-primary); word-break:break-word;
-  max-width:100%; align-self:stretch; padding:1px 0; }
+
+/* ---- the reading column, measured against OpenCode's own numbers ----------
+ *
+ * These are not opinions. They are the values out of OpenCode's shipped CSS,
+ * read out of the app.asar on this machine, which is the only way to "make it
+ * look like OpenCode" that is not a guess:
+ *
+ *   --container-3xl        48rem    the width a conversation is read at
+ *   --font-size-base       14px     the body size
+ *   --line-height-x-large  180%     the line height of that size
+ *   --font-weight-regular  400      body weight — this column was 650-strong prose
+ *   --font-weight-medium   500      for anything that needs to be found
+ *   --radius-md            .375rem  inline code, small surfaces
+ *   --radius-lg            .5rem     a message surface
+ *   --letter-spacing-normal  0       the previous chat tracked its body text at .01em
+ *
+ * The body weight is the one that matters most and is the least obvious. Chat
+ * prose at 650 reads as a wall; a transcript is a document, and a document is
+ * 400. The head and the time stay heavier than the body, so the eye still finds
+ * the two without either of them shouting. */
+.msg .who { font-size:11px; font-weight:500; letter-spacing:0; text-transform:none;
+  color:var(--fn-text-tertiary); }
+.msg .time { font-size:11px; color:var(--fn-text-quaternary); font-variant-numeric:tabular-nums; margin-left:auto; }
+.msg .body { font-size:14px; line-height:1.8; font-weight:400; letter-spacing:0;
+  color:var(--fn-text-primary); word-break:break-word;
+  max-width:48rem; align-self:stretch; padding:1px 0; }
 .msg .msghead::before { content:"O"; display:grid; place-items:center; width:20px; height:20px; flex:none; border:1px solid var(--fn-border-input-alt);
-  border-radius:50%; color:var(--fn-text-secondary); font-size:10px; font-weight:600; }
+  border-radius:50%; color:var(--fn-text-secondary); font-size:10px; font-weight:500; }
 .msg.u .msghead::before { content:"U"; background:var(--fn-bg-secondary); color:var(--fn-text-primary); }
 
 .msg.err .body { border-left:2px solid var(--fn-color-danger); padding-left:10px; }
 .msg .body:empty { display:none; }
-.msg .body p { margin:0 0 8px; }
+/* Paragraph spacing scales with the line height it sits in. At 1.8 a 8px gap is
+   too small to see and the answer turns into one block; 16px is about one line,
+   which is the gap a reader expects between thoughts. */
+.msg .body p { margin:0 0 16px; }
 .msg .body p:last-child { margin-bottom:0; }
-.msg .body ul { margin:0 0 8px 18px; padding:0; }
-.msg .body li + li { margin-top:2px; }
-.msg .body strong { font-weight:650; }
-.msg .body code { padding:1px 4px; border-radius:3px; background:var(--fn-bg-code); font:12px/1.4 var(--fn-font-mono); }
-.msg .codeblock { position:relative; margin:8px 0; padding:28px 10px 10px; overflow-x:auto; background:var(--fn-bg-code);
-  border:1px solid var(--fn-border-secondary); font:12px/1.55 var(--fn-font-mono); white-space:pre; }
+.msg .body ul, .msg .body ol { margin:0 0 16px 20px; padding:0; }
+.msg .body li + li { margin-top:4px; }
+.msg .body li::marker { color:var(--fn-text-tertiary); }
+/* Headings inside an answer are a document's headings, not a page's: small, tight,
+   and no rule under them. */
+.msg .body h1, .msg .body h2, .msg .body h3, .msg .body h4 {
+  font-weight:500; letter-spacing:0; margin:24px 0 8px; }
+.msg .body h1:first-child, .msg .body h2:first-child, .msg .body h3:first-child { margin-top:0; }
+.msg .body h1 { font-size:16px; }
+.msg .body h2 { font-size:15px; }
+.msg .body h3, .msg .body h4 { font-size:14px; color:var(--fn-text-secondary); }
+/* A blockquote is a quotation: indented, quieter, and marked on the left by a
+   hairline rather than a filled bar. */
+.msg .body blockquote { margin:0 0 16px; padding:0 0 0 14px; border-left:1px solid var(--fn-border-secondary);
+  color:var(--fn-text-secondary); }
+/* A table is a document's table: hairlines, no zebra, and the header is just
+   quieter rather than filled. */
+.msg .body table { border-collapse:collapse; margin:0 0 16px; font-size:13px; }
+.msg .body th, .msg .body td { border-bottom:1px solid var(--fn-border-secondary); padding:6px 12px 6px 0; text-align:left; }
+.msg .body th { font-weight:500; color:var(--fn-text-secondary); }
+.msg .body hr { border:0; border-top:1px solid var(--fn-border-secondary); margin:24px 0; }
+.msg .body a { color:var(--fn-text-primary); text-decoration:underline; text-underline-offset:2px; }
+.msg .body strong { font-weight:500; }
+.msg .body code { padding:1.5px 5px; border-radius:4px; background:var(--fn-bg-code); font:12.5px/1.5 var(--fn-font-mono); }
+.msg .codeblock { position:relative; margin:0 0 16px; padding:28px 12px 12px; overflow-x:auto; background:var(--fn-bg-code);
+  border:1px solid var(--fn-border-secondary); border-radius:6px; font:12.5px/1.6 var(--fn-font-mono); white-space:pre; }
 .msg .codeblock code { padding:0; background:transparent; }
 .msg .copycode { position:absolute; top:5px; right:5px; border:1px solid var(--fn-border-input-alt); background:transparent;
   color:var(--fn-text-secondary); border-radius:3px; padding:2px 6px; cursor:pointer; font:10px var(--fn-font-ui); }
@@ -1504,14 +1558,16 @@ body.tab-chat .wb-head { display:none; }
  *   lifted by a 1px ring plus three soft shadows, instead of a hard border
  *   a fill one shade off the page, so the box has a body
  * Those three are why it no longer looks like a form field. */
+/* The composer's radius, shadow and text size are OpenCode's --radius-lg (.5rem),
+   a hairline instead of a lift, and --font-size-base (14px). It was 12px with a
+   four-layer shadow, which is the look of a floating card rather than a document —
+   and it put the text being typed at a different size from the text being read,
+   by half a pixel. */
 .composer { display:flex; flex-direction:column; position:relative; overflow:clip;
-  border-radius:12px; background:var(--fn-bg-secondary);
-  box-shadow:0 0 0 1px var(--fn-border-primary),
-             0 1px 2px -1px rgb(19 16 16 / 6%),
-             0 1px 2px 0 rgb(19 16 16 / 9%),
-             0 1px 3px 0 rgb(19 16 16 / 8%); }
+  border-radius:8px; background:var(--fn-bg-secondary);
+  box-shadow:0 0 0 1px var(--fn-border-primary); }
 .composer textarea { display:block; width:100%; min-width:0; resize:none; border:none; outline:none;
-  background:transparent; color:var(--fn-text-primary); font:inherit; font-size:13.5px;
+  background:transparent; color:var(--fn-text-primary); font:inherit; font-size:14px;
   line-height:1.5; padding:11px 13px 4px; max-height:200px; overflow-y:auto; }
 .composer textarea::placeholder { color:var(--fn-text-tertiary); }
 /* the control row, inside the box — no border, no fill, no lift of its own */
