@@ -341,10 +341,11 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
   container-type:inline-size; container-name:chat; }
 
 /* OpenCode layout: the chat is the app. Messages take the full height, the
-   composer sits at the bottom, a status line names the session and the model,
-   and the session list lives in a right sidebar that can be toggled away —
-   the same four zones the OpenCode TUI draws. The status line travels with
-   the .chat element, so the floating windows get it for free. */
+   composer sits at the bottom, a status line under the composer names the model
+   and the state, and the session list lives in a right sidebar that can be
+   toggled away — the same four zones the OpenCode TUI draws.
+   (The status line does not travel to the floating windows: they carry their own,
+   in .fw-sub. This comment used to claim they got it for free.) */
 /* One left edge for the whole column.
  *
  * The conversation is held to a reading measure and centred in the column, which
@@ -354,15 +355,12 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * the messages by exactly half the difference — twelve pixels here, and a lot
  * more on a wide screen. Four left edges, none of them the one the eye lands on.
  *
- * So all three are centred on the same measure as the conversation, and the
- * gutter is what is left over when the column is narrower than that. max() does
- * both without a breakpoint: the content lines up with the messages on a wide
- * column, and simply uses the gutter on a narrow one, which is the same number
- * it would have used anyway. */
-.chat > .oc-status { flex:none; display:flex; align-items:center; gap:8px; min-width:0;
-  padding:3px var(--oc-inset);
-  border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-tertiary);
-  font-size:10.5px; color:var(--fn-text-tertiary); }
+ * So the header and the tab strip are centred on the same measure as the
+ * conversation, and the gutter is what is left over when the column is narrower
+ * than that. The status line stopped needing any of this: it used to be a direct
+ * child of .chat with its own inset, and is now a child of the same measure
+ * container the messages are in, so it lands on the one left edge by being
+ * inside the thing rather than by being told the number again. */
 /* The bar is the button plus air, rather than a height the button has to fit
    inside. Fixed 36px with a 32px button in it left two pixels of slack; fixed
    36px with a 22px one left a bar twice as tall as its contents, which is what
@@ -547,10 +545,70 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
   border:1px solid transparent; border-radius:var(--fn-radius-sm) var(--fn-radius-sm) 0 0; background:transparent;
   color:var(--fn-text-tertiary); cursor:pointer; padding:0; }
 .chat-new-tab:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
-.oc-status .oc-session { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis;
-  white-space:nowrap; font-weight:500; color:var(--fn-text-tertiary); }
-.oc-status .oc-model { flex:none; color:var(--fn-text-tertiary); }
-.oc-status .oc-provider { flex:none; color:var(--fn-text-tertiary); }
+/* What the agent is doing, rendered the way OpenCode renders it.
+ *
+ * The single idea behind it: the work is IN the conversation, not under it.
+ * OpenCode has no "Thinking…" strip anywhere — each tool call is a full-width
+ * row in the timeline, between the messages, and it stays there afterwards. That
+ * is why it reads as clear. Three consequences, and all three are the point:
+ *
+ *   1. The eye is already there. Work below the fold is work you have to go and
+ *      look at; work between two messages is work you are already looking at.
+ *   2. The live row has a spinner, not a dot. Motion is the signal, and it
+ *      costs one element rather than a sentence of explanation.
+ *   3. Finished work stays. When the agent stops, the rows do not disappear —
+ *      they turn into a record of what it did. Hiding them at the end is what
+ *      made the old strip useless: the interesting part was over before you read
+ *      it.
+ *
+ * Numbers are OpenCode's, read out of its own stylesheet: 13px text, 16px
+ * indicator, 530 weight on the title, 12px gap inside a turn, 24px between
+ * turns, and content-visibility:auto so a long chat does not cost a long layout.
+ */
+.actdock { margin:0 0 10px; }
+.actdock[hidden] { display:none; }
+.act-row { display:flex; align-items:center; gap:8px; width:100%;
+  border:0; background:transparent; padding:3px 0; margin:0; text-align:left;
+  color:var(--fn-text-tertiary); cursor:pointer; font:inherit;
+  content-visibility:auto; }
+.act-row:hover { color:var(--fn-text-primary); }
+.act-ico { flex:none; display:inline-flex; align-items:center; justify-content:center;
+  width:16px; height:16px; color:currentColor; }
+.act-ico .spin { display:block; width:16px; height:16px; border-radius:50%;
+  border:1.6px solid var(--fn-border-secondary); border-top-color:currentColor;
+  animation:actspin .7s linear infinite; }
+@keyframes actspin { to { transform:rotate(360deg) } }
+.act-row.ok .act-ico { color:var(--fn-color-success); }
+.act-row.bad .act-ico { color:var(--fn-color-danger); }
+.act-title { font-size:13px; font-weight:530; line-height:1.4; color:var(--fn-text-secondary);
+  min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.act-row.now .act-title { color:var(--fn-text-primary); }
+.act-arg { font-size:13px; font-weight:400; color:var(--fn-text-tertiary);
+  min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex-shrink:1; }
+.act-count { margin-left:auto; flex:none; font-size:11px; color:var(--fn-text-quaternary);
+  font-variant-numeric:tabular-nums; padding-right:2px; }
+
+/* the line under the composer: which provider answers, and what it is doing.
+ *
+ * It used to be a full-width bar across the very bottom of the panel, and it
+ * said the same three things the composer and the header were already saying —
+ * the model was in a chip inside the composer *and* down here, and the session
+ * name was in the active tab *and* down here. Four elements competing for the
+ * same three facts is what made the panel feel crowded rather than dense.
+ *
+ * So it moved in here, under the composer, inside the same measure the messages
+ * use: the state is one place, and the session name is gone because the tab it
+ * belonged to is the thing that says it. The model went to the tray above, which
+ * is where you change it from — the tray is the input zone's own row of controls
+ * and a model name is one of them now, not a caption under a paragraph.
+ *
+ * And it goes quiet for "Ready" and "Working": those two words are the Thinking
+ * row's business. An error or a rate-limit retry is not, and still lands here. */
+.oc-status { display:flex; align-items:center; gap:7px; flex:none;
+  margin:6px 0 0; min-height:15px; font-size:10.5px; color:var(--fn-text-tertiary); }
+.oc-status .oc-provider { flex:none; min-width:0; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; opacity:.75; }
+.oc-status .oc-provider:empty { display:none; }
 /* The session-list toggle, which lives in the panel header now rather than in
  * the status line.
  *
@@ -666,8 +724,11 @@ body.tab-chat .wb-card { padding:0; }
 .floatwin .fw-dot { width:6px; height:6px; }
 .floatwin .chat-panel-head { min-height:24px; padding:0 5px 0 9px; gap:4px; }
 .floatwin .chat-session-tab { font-size:11px; }
-.floatwin .oc-status { padding:2px var(--oc-gutter); gap:6px; }
-.floatwin .oc-status .oc-provider { display:none; }
+/* .floatwin .oc-status was tuned twice over for a bar that is not in a floating
+   window. floatBuild builds its own header and its own status line — .fw-sub,
+   holding host · profile · "working…", with fw-busy pulsing .fw-dot beside it —
+   and never an .oc-status. Two rules here had been padding a bar that exists in
+   exactly one place on the page, and neither had a single element to match. */
 
 /* Browser: a quiet tab strip, one line of address, the page, one line
    of status. Nothing else draws a box. */
@@ -1296,31 +1357,21 @@ body.tab-chat .wb-head { display:none; }
 .tooldetail .trow.open .tdetail { display:block; }
 .tooldetail .trow[tabindex] { cursor:pointer; }
 
-.thinking { display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--fn-text-tertiary); }
-.thinking .dots { display:inline-flex; gap:3px; }
-.thinking .dots i { width:5px; height:5px; border-radius:50%; background:currentColor; animation:tpulse 1.1s ease-in-out infinite; }
-.thinking .dots i:nth-child(2) { animation-delay:.16s; }
-.thinking .dots i:nth-child(3) { animation-delay:.32s; }
 @keyframes tpulse { 0%,100% { opacity:.25 } 50% { opacity:1 } }
-@media (prefers-reduced-motion:reduce) { .tooldetail .trow.now .tstate, .thinking .dots i { animation:none; opacity:1; } }
+@media (prefers-reduced-motion:reduce) { .tooldetail .trow.now .tstate, .act-ico .spin { animation:none; opacity:1; } }
+/* .thinking — the three bouncing dots — was never in the markup and never
+   matched anything. The activity rows carry their own indicator now, and it is a
+   ring that spins, so the rule went with it. */
 
 /* composer */
 .chatfoot { flex:none;
   padding:calc(8px * var(--fn-dens)) var(--oc-inset) calc(11px * var(--fn-dens));
   border-top:1px solid var(--fn-border-tertiary); background:var(--fn-bg-primary); }
-.chatmeta { font-size:10.5px; color:var(--fn-text-tertiary); margin:0 0 5px 2px; display:flex; gap:8px; align-items:center; }
-.chatmeta a { color:var(--fn-text-tertiary); text-decoration:none; border-bottom:1px dotted var(--fn-border-tertiary); }
-.chatmeta a:hover { color:var(--fn-text-primary); }
-.chatmeta button.link { background:none; border:none; padding:0; cursor:pointer;
-  color:var(--fn-text-tertiary); font:inherit; font-size:11px; text-decoration:underline; }
-.chatmeta button.link:hover { color:var(--fn-text-primary); }
-.aihead { display:inline-flex; align-items:center; gap:4px; background:none; border:none; padding:0;
-  cursor:pointer; color:var(--fn-text-primary); font:inherit; font-size:11.5px; font-weight:600; }
-.aihead:hover .ainm { text-decoration:underline; }
-.aihead .aicv { color:var(--fn-text-tertiary); font-size:9px; }
-.chatmeta .aivia { color:var(--fn-text-tertiary); }
-.chatmeta .aist { color:var(--fn-text-tertiary); }
-.chatmeta .aist.on { color:var(--fn-color-brand); }
+/* .chatmeta and .model-chip were a second place for the model, a third for the
+ * working state, and a chip inside the composer that duplicated the line under
+ * it. All three elements are gone; the styles went with them rather than being
+ * left as rules nothing can match, which is how a file grows a second truth
+ * about how the panel is built. */
 
 .atlist { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
 .atlist:empty { display:none; }
@@ -1333,21 +1384,57 @@ body.tab-chat .wb-head { display:none; }
 .atchip .rm:hover { color:var(--fn-color-danger); background:var(--fn-bg-primary); }
 .atchip.bad { border-color:var(--fn-color-danger-border); color:var(--fn-color-danger); }
 
-/* The composer is the one control that earns a border of its own: it is the
-   only thing on the page the user is about to type into. */
-.composer { display:flex; flex-direction:row; align-items:flex-end; gap:8px; padding:7px 8px 7px;
-  background:var(--fn-bg-primary); border:1px solid var(--fn-border-input-alt);
-  border-radius:calc(6px * var(--fn-radius-scale));
-  transition:border-color var(--fn-transition); }
-.composer:focus-within { border-color:var(--fn-border-focus); }
-.composer textarea { flex:1; min-width:0; resize:none; border:none; outline:none; background:transparent;
-  color:var(--fn-text-primary); font:inherit; font-size:13.5px; line-height:1.5; padding:5px 0;
-  max-height:200px; overflow-y:auto; }
-.composer-controls { display:flex; align-items:center; gap:4px; flex:none; min-height:26px; }
-.model-chip { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:1px solid var(--fn-border-secondary); background:transparent;
-  color:var(--fn-text-tertiary); border-radius:var(--fn-radius-sm); padding:4px 7px; cursor:pointer; font:10.5px var(--fn-font-ui); }
-.model-chip:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
+/* One box, the way it was asked for: text on top, the row of controls inside the
+   same border underneath it.
+ *
+ * OpenCode splits this into two surfaces — a raised shell and a separate tray
+ * welded under it — and that was tried here and reverted. The tray is still
+ * OpenCode's row and still sits in OpenCode's order; what went is the second
+ * surface, because two boxes where one was wanted reads as a mistake rather
+ * than as a design.
+ *
+ * What did survive from OpenCode is the part that makes it look expensive, and
+ * it is not the split:
+ *   12px radius
+ *   lifted by a 1px ring plus three soft shadows, instead of a hard border
+ *   a fill one shade off the page, so the box has a body
+ * Those three are why it no longer looks like a form field. */
+.composer { display:flex; flex-direction:column; position:relative; overflow:clip;
+  border-radius:12px; background:var(--fn-bg-secondary);
+  box-shadow:0 0 0 1px var(--fn-border-primary),
+             0 1px 2px -1px rgb(19 16 16 / 6%),
+             0 1px 2px 0 rgb(19 16 16 / 9%),
+             0 1px 3px 0 rgb(19 16 16 / 8%); }
+.composer textarea { display:block; width:100%; min-width:0; resize:none; border:none; outline:none;
+  background:transparent; color:var(--fn-text-primary); font:inherit; font-size:13.5px;
+  line-height:1.5; padding:11px 13px 4px; max-height:200px; overflow-y:auto; }
 .composer textarea::placeholder { color:var(--fn-text-tertiary); }
+/* the control row, inside the box — no border, no fill, no lift of its own */
+.composer-tray { display:flex; align-items:center; gap:4px; padding:4px 7px 7px; }
+/* the breathing room between the model and the thinking choice: the two are
+   separate controls and a gap is what says so, where no gap would have read as
+   one label that happens to have two halves */
+.tray-gap { flex:none; width:10px; }
+.tray-pick { flex:none; max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  border:0; background:transparent; color:var(--fn-text-secondary); cursor:pointer;
+  font:550 12px var(--fn-font-ui); padding:4px 7px; border-radius:7px;
+  transition:color var(--fn-transition), background var(--fn-transition); }
+.tray-pick:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
+.tray-pick::after { content:"▾"; margin-left:4px; opacity:.5; font-size:9px; }
+/* The reasoning level. A native select on purpose: it brings its own popup, its
+   own keyboard handling and its own screen-reader wiring, none of which a
+   hand-rolled menu has to be got right at 2am. Everything cosmetic is taken
+   away; what is left is a box that matches the buttons beside it. */
+.tray-think { display:flex; align-items:center; gap:5px; flex:none; cursor:pointer;
+  font-size:12px; color:var(--fn-text-tertiary); padding:0 2px 0 6px; border-radius:7px;
+  transition:color var(--fn-transition), background var(--fn-transition); }
+.tray-think:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
+.tray-think-n { white-space:nowrap; }
+.tray-think select { appearance:none; -webkit-appearance:none; border:0; outline:none;
+  background:transparent; color:var(--fn-text-secondary); cursor:pointer; font:inherit; font-weight:550;
+  padding:4px 4px; border-radius:5px; }
+.tray-think select::after { content:""; }
+.tray-think select option { background:var(--fn-bg-primary); color:var(--fn-text-primary); }
 .command-menu { position:relative; max-width:var(--oc-measure); margin:0 auto 5px; border:1px solid var(--fn-border-secondary); background:var(--fn-bg-primary); }
 .command-menu button { display:block; width:100%; border:0; background:transparent; color:var(--fn-text-secondary); text-align:left;
   padding:5px 8px; cursor:pointer; font:11px var(--fn-font-mono); }
@@ -1868,21 +1955,52 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
 
 /* ==================== voice + thinking ==================== */
 
-.cbtn.mic { position:relative; color:var(--fn-text-tertiary); }
-.cbtn.mic.on { color:var(--fn-color-danger); }
+/* The microphone is a toggle, and a toggle that only changes colour is a toggle
+ * half the time you will miss it. Three states have to be separable at a glance
+ * and none of them may look like the same thing:
+ *
+ *   off    — the plain icon, quiet, the way every other composer button is
+ *   on     — the icon in red on a red-tinted pill, with a dot that breathes, so
+ *            "this is live" survives being glanced at rather than read
+ *   busy   — still red, because the microphone has not stopped listening; what
+ *            changed is that the result is being transcribed, and the ring
+ *            around the dot becomes a spinner. It used to go grey here, which
+ *            read as *disabled* — the exact opposite of what was true.
+ *
+ * Off is also the resting state of the button's own box, so turning it on adds
+ * a background rather than only repainting the glyph: the shape of the control
+ * changes, which is the thing an eye actually catches. */
+.cbtn.mic { position:relative; color:var(--fn-text-tertiary);
+  transition:color var(--fn-transition), background var(--fn-transition); }
+.cbtn.mic:hover { background:var(--fn-bg-hover); color:var(--fn-text-primary); }
+.cbtn.mic.on { color:var(--fn-color-danger);
+  background:color-mix(in srgb, var(--fn-color-danger) 12%, transparent); }
+.cbtn.mic.on:hover { background:color-mix(in srgb, var(--fn-color-danger) 19%, transparent); }
 .cbtn.mic.on::after { content:""; position:absolute; width:5px; height:5px; right:3px; top:3px; border-radius:50%;
   background:var(--fn-color-danger); animation:micpulse 1.2s ease-in-out infinite; }
-.cbtn.mic.busy { color:var(--fn-text-quaternary); }
+/* busy is a second class alongside on, so it can only ever be seen while the
+   microphone is live — which is why it recolours from on rather than instead
+   of it. */
+.cbtn.mic.busy { color:var(--fn-color-danger); opacity:1; }
+.cbtn.mic.busy::after { width:10px; height:10px; right:0; top:0;
+  background:transparent; border:1.5px solid var(--fn-color-danger);
+  border-top-color:transparent; animation:micspin .7s linear infinite; }
 @keyframes micpulse { 0%,100% { opacity:.35 } 50% { opacity:1 } }
-@media (prefers-reduced-motion:reduce) { .cbtn.mic.on::after { animation:none; opacity:1; } }
+@keyframes micspin { to { transform:rotate(360deg) } }
+@media (prefers-reduced-motion:reduce) {
+  .cbtn.mic.on::after { animation:none; opacity:1; }
+  .cbtn.mic.busy::after { animation:none; opacity:1; } }
 .voicehint { font-size:11px; color:var(--fn-text-tertiary); margin:0 0 6px 2px; display:flex; gap:8px; align-items:center; }
 .voicehint.bad { color:var(--fn-color-danger); }
 .voicehint button { background:none; border:none; color:inherit; cursor:pointer;
   text-decoration:underline; padding:0; font:inherit; font-size:11px; }
 
 /* one line in the header: a dot and the current state, nothing else */
-.chatwork { display:flex; align-items:center; gap:5px; margin:0 0 5px 2px;
-  font-size:11.5px; color:var(--fn-text-tertiary); }
+/* .chatwork was a second "now doing X" line, stacked one row under the Thinking
+   disclosure that already said the same words — the label came off the same
+   ACT.steps array on both. Two rows, one fact, and the foot of the panel grew by
+   a line every time the agent ran. The Thinking row is the one that stays: it
+   has the step list, the count, and the live dot. */
 .aiwork[hidden] { display:none; }
 .aiwork::before { content:""; width:5px; height:5px; border-radius:50%;
   background:var(--fn-color-brand); animation:tpulse 1.15s ease-in-out infinite; }
@@ -1937,33 +2055,16 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
   font-size:11.5px; color:var(--fn-text-tertiary); cursor:pointer; user-select:none; }
 .au-sw input { accent-color:var(--fn-color-brand); cursor:pointer; }
 .set-note { margin:7px 0 0; font-size:11.5px; color:var(--fn-text-tertiary); }
-/* The agent working is one line, not a panel: a dot, a label, a count, and the
-   steps behind a disclosure for anyone who wants to read them. */
-.think { margin:0 0 6px; }
-.think[hidden] { display:none; }
-.think > summary { list-style:none; cursor:pointer; display:flex; align-items:center; gap:7px;
-  padding:3px 7px; font-size:11.5px; color:var(--fn-text-tertiary); user-select:none;
-  border-radius:calc(5px * var(--fn-radius-scale)); width:fit-content; max-width:100%; }
-.think > summary::-webkit-details-marker { display:none; }
-.think > summary:hover { color:var(--fn-text-primary); background:var(--fn-bg-hover); }
-.think .tdot { width:6px; height:6px; border-radius:50%; background:var(--fn-color-brand); flex:none; }
-.think.live .tdot { animation:tpulse 1.1s ease-in-out infinite; }
-.think .tlabel { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.think .tcount { flex:none; opacity:.7; font-variant-numeric:tabular-nums; }
-.think .tsteps { margin:2px 0 4px 12px; padding-left:9px; border-left:1px solid var(--fn-border-secondary); }
-.think .tstep { display:flex; gap:7px; align-items:baseline; font-size:11.5px; color:var(--fn-text-tertiary);
-  padding:1.5px 0; }
-.think .tstep .tsico { flex:none; opacity:.8; }
-.think .tstep.now { color:var(--fn-text-primary); }
-.think .tstep.ok .tsico { color:var(--fn-color-success); }
-.think .tstep.bad .tsico { color:var(--fn-color-danger); }
-.think .tclears { margin-left:auto; }
+/* The disclosure that used to sit under the composer: a dot, a label, a count,
+   and the steps folded away. All of it is gone, and so are these rules.
+   What replaced it is .actdock, up in the log, where the work is — see the note
+   there. Leaving these behind would have meant a second answer to "what is the
+   agent doing", which is the thing the move was made to end. */
 
 @media (max-width:767px) {
   .presets { grid-template-columns:1fr 1fr; }
   .mrow .mvendor { display:none; }
-  .think > summary { max-width:100%; }
-  .cbtn.mic { width:28px; height:28px; }
+    .cbtn.mic { width:28px; height:28px; }
 }
 
 
@@ -2107,29 +2208,22 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
               <div class="chatlog" id="chatLog" role="log" aria-live="polite" aria-label="Octop conversation">
                 <div class="chatempty" id="chatEmpty"><span class="oc-empty-title">O Browser is ready.</span><div class="empty-prompts"><button type="button" data-prompt="Open the browser and inspect the current page">Inspect the current page</button><button type="button" data-prompt="Summarize what is open in the browser">Summarize the browser</button><button type="button" data-prompt="Help me automate a browser task">Plan an automation</button></div></div>
                 <button class="latest-btn" id="chatLatest" type="button" hidden>Latest messages</button>
-                <div class="chatinner" id="chatLogInner"></div>
+                <div class="chatinner" id="chatLogInner"><div class="actdock" id="actDock" hidden></div></div>
               </div>
               <div class="chat-mark"><svg viewBox="0 0 49 7" width="392" height="56" role="img" aria-label="O Browser" class="ob-mark"><g class="ob-mark-dim"><rect x="1" y="0" width="1" height="1"/><rect x="2" y="0" width="1" height="1"/><rect x="3" y="0" width="1" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="0" y="5" width="1" height="1"/><rect x="4" y="5" width="1" height="1"/><rect x="1" y="6" width="1" height="1"/><rect x="2" y="6" width="1" height="1"/><rect x="3" y="6" width="1" height="1"/></g><g class="ob-mark-strong"><rect x="8" y="0" width="1" height="1"/><rect x="9" y="0" width="1" height="1"/><rect x="10" y="0" width="1" height="1"/><rect x="11" y="0" width="1" height="1"/><rect x="8" y="1" width="1" height="1"/><rect x="12" y="1" width="1" height="1"/><rect x="8" y="2" width="1" height="1"/><rect x="12" y="2" width="1" height="1"/><rect x="8" y="3" width="1" height="1"/><rect x="9" y="3" width="1" height="1"/><rect x="10" y="3" width="1" height="1"/><rect x="11" y="3" width="1" height="1"/><rect x="8" y="4" width="1" height="1"/><rect x="12" y="4" width="1" height="1"/><rect x="8" y="5" width="1" height="1"/><rect x="12" y="5" width="1" height="1"/><rect x="8" y="6" width="1" height="1"/><rect x="9" y="6" width="1" height="1"/><rect x="10" y="6" width="1" height="1"/><rect x="11" y="6" width="1" height="1"/><rect x="14" y="0" width="1" height="1"/><rect x="15" y="0" width="1" height="1"/><rect x="16" y="0" width="1" height="1"/><rect x="17" y="0" width="1" height="1"/><rect x="14" y="1" width="1" height="1"/><rect x="18" y="1" width="1" height="1"/><rect x="14" y="2" width="1" height="1"/><rect x="18" y="2" width="1" height="1"/><rect x="14" y="3" width="1" height="1"/><rect x="15" y="3" width="1" height="1"/><rect x="16" y="3" width="1" height="1"/><rect x="17" y="3" width="1" height="1"/><rect x="14" y="4" width="1" height="1"/><rect x="16" y="4" width="1" height="1"/><rect x="14" y="5" width="1" height="1"/><rect x="17" y="5" width="1" height="1"/><rect x="14" y="6" width="1" height="1"/><rect x="18" y="6" width="1" height="1"/><rect x="21" y="0" width="1" height="1"/><rect x="22" y="0" width="1" height="1"/><rect x="23" y="0" width="1" height="1"/><rect x="20" y="1" width="1" height="1"/><rect x="24" y="1" width="1" height="1"/><rect x="20" y="2" width="1" height="1"/><rect x="24" y="2" width="1" height="1"/><rect x="20" y="3" width="1" height="1"/><rect x="24" y="3" width="1" height="1"/><rect x="20" y="4" width="1" height="1"/><rect x="24" y="4" width="1" height="1"/><rect x="20" y="5" width="1" height="1"/><rect x="24" y="5" width="1" height="1"/><rect x="21" y="6" width="1" height="1"/><rect x="22" y="6" width="1" height="1"/><rect x="23" y="6" width="1" height="1"/><rect x="26" y="0" width="1" height="1"/><rect x="30" y="0" width="1" height="1"/><rect x="26" y="1" width="1" height="1"/><rect x="30" y="1" width="1" height="1"/><rect x="26" y="2" width="1" height="1"/><rect x="30" y="2" width="1" height="1"/><rect x="26" y="3" width="1" height="1"/><rect x="30" y="3" width="1" height="1"/><rect x="26" y="4" width="1" height="1"/><rect x="30" y="4" width="1" height="1"/><rect x="26" y="5" width="1" height="1"/><rect x="28" y="5" width="1" height="1"/><rect x="30" y="5" width="1" height="1"/><rect x="27" y="6" width="1" height="1"/><rect x="28" y="6" width="1" height="1"/><rect x="29" y="6" width="1" height="1"/><rect x="33" y="0" width="1" height="1"/><rect x="34" y="0" width="1" height="1"/><rect x="35" y="0" width="1" height="1"/><rect x="36" y="0" width="1" height="1"/><rect x="32" y="1" width="1" height="1"/><rect x="32" y="2" width="1" height="1"/><rect x="33" y="3" width="1" height="1"/><rect x="34" y="3" width="1" height="1"/><rect x="35" y="3" width="1" height="1"/><rect x="36" y="4" width="1" height="1"/><rect x="36" y="5" width="1" height="1"/><rect x="32" y="6" width="1" height="1"/><rect x="33" y="6" width="1" height="1"/><rect x="34" y="6" width="1" height="1"/><rect x="35" y="6" width="1" height="1"/><rect x="38" y="0" width="1" height="1"/><rect x="39" y="0" width="1" height="1"/><rect x="40" y="0" width="1" height="1"/><rect x="41" y="0" width="1" height="1"/><rect x="42" y="0" width="1" height="1"/><rect x="38" y="1" width="1" height="1"/><rect x="38" y="2" width="1" height="1"/><rect x="38" y="3" width="1" height="1"/><rect x="39" y="3" width="1" height="1"/><rect x="40" y="3" width="1" height="1"/><rect x="41" y="3" width="1" height="1"/><rect x="38" y="4" width="1" height="1"/><rect x="38" y="5" width="1" height="1"/><rect x="38" y="6" width="1" height="1"/><rect x="39" y="6" width="1" height="1"/><rect x="40" y="6" width="1" height="1"/><rect x="41" y="6" width="1" height="1"/><rect x="42" y="6" width="1" height="1"/><rect x="44" y="0" width="1" height="1"/><rect x="45" y="0" width="1" height="1"/><rect x="46" y="0" width="1" height="1"/><rect x="47" y="0" width="1" height="1"/><rect x="44" y="1" width="1" height="1"/><rect x="48" y="1" width="1" height="1"/><rect x="44" y="2" width="1" height="1"/><rect x="48" y="2" width="1" height="1"/><rect x="44" y="3" width="1" height="1"/><rect x="45" y="3" width="1" height="1"/><rect x="46" y="3" width="1" height="1"/><rect x="47" y="3" width="1" height="1"/><rect x="44" y="4" width="1" height="1"/><rect x="46" y="4" width="1" height="1"/><rect x="44" y="5" width="1" height="1"/><rect x="47" y="5" width="1" height="1"/><rect x="44" y="6" width="1" height="1"/><rect x="48" y="6" width="1" height="1"/></g><g class="ob-mark-count"><rect x="1" y="1" width="1" height="1"/><rect x="2" y="1" width="1" height="1"/><rect x="3" y="1" width="1" height="1"/><rect x="9" y="1" width="1" height="1"/><rect x="10" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/><rect x="9" y="4" width="1" height="1"/><rect x="10" y="4" width="1" height="1"/><rect x="11" y="4" width="1" height="1"/><rect x="15" y="1" width="1" height="1"/><rect x="16" y="1" width="1" height="1"/><rect x="17" y="1" width="1" height="1"/><rect x="21" y="1" width="1" height="1"/><rect x="22" y="1" width="1" height="1"/><rect x="23" y="1" width="1" height="1"/><rect x="45" y="1" width="1" height="1"/><rect x="46" y="1" width="1" height="1"/><rect x="47" y="1" width="1" height="1"/></g></svg></div>
               <div class="chatfoot">
                 <div class="chatinner2">
                   <div class="chat-network" id="chatNetwork" hidden><span>Connection lost. Your conversation is still here.</span><button type="button" id="chatReconnect">Reconnect</button></div>
-                  <details class="think" id="thinkRow" hidden>
-                    <summary>
-                      <span class="tdot"></span>
-                      <span class="tlabel" id="thinkLabel">Thinking…</span>
-                      <span class="tcount" id="thinkCount"></span>
-                    </summary>
-                    <div class="tsteps" id="thinkSteps"></div>
-                  </details>
                   <div class="voicehint" id="voiceHint" hidden></div>
-                  <div class="chatwork" id="chatWork" hidden></div>
                   <div class="atlist" id="atList"></div>
                   <div class="command-menu" id="commandMenu" hidden role="listbox" aria-label="Chat commands"></div>
                   <div class="composer">
                     <textarea id="chatInput" rows="1" placeholder="Message your agent…" aria-label="Message"></textarea>
-                    <div class="composer-controls">
+                    <div class="composer-tray">
                     <button class="cbtn" id="atBtn" type="button" title="Attach a file" aria-label="Attach a file"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m21.4 11.6-8.8 8.8a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg></button>
-                    <button class="model-chip" id="chatModelChip" type="button" title="Change model" aria-label="Change model"><span id="chatModelChipText">Model</span></button>
+                    <button class="tray-pick" id="ocModel" type="button" title="choose a model">—</button>
+                    <span class="tray-gap" aria-hidden="true"></span>
+                    <label class="tray-think" id="chatThinkWrap" hidden><span class="tray-think-n">Thinking</span><select id="chatThink" aria-label="Reasoning effort"><option value="auto">Auto</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
                     <span class="grow"></span>
                     <button class="cbtn mic" id="micBtn" type="button" title="Start voice input (Ctrl+Shift+M)" aria-label="Start voice input" aria-pressed="false" hidden>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
@@ -2138,13 +2232,12 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
                     <button class="cbtn stop" id="chatStop" type="button" title="Stop" aria-label="Stop generation" hidden>■</button>
                     </div>
                   </div>
+                  <div class="oc-status" id="ocStatus">
+                    <span class="oc-provider" id="ocProvider"></span>
+                    <span class="grow"></span>
+                    <span class="status-dot" id="ocStatusDot" aria-hidden="true"></span><span class="status-text" id="ocStatusText">Ready</span>
+                  </div>
                 </div>
-              </div>
-              <div class="oc-status" id="ocStatus">
-                <span class="oc-session" id="sesName"></span>
-                <span class="oc-model" id="ocModel">—</span>
-                <span class="oc-provider" id="ocProvider"></span>
-                <span class="status-dot" id="ocStatusDot" aria-hidden="true"></span><span class="status-text" id="ocStatusText">Ready</span>
               </div>
             </div>
             <aside class="oc-side" id="ocSide" hidden>
@@ -3018,7 +3111,6 @@ const chatInner = $("chatLogInner");
 const chatInput = $("chatInput");
 const chatSend = $("chatSend");
 const chatStop = $("chatStop");
-const chatMeta = $("chatMeta");
 const atList = $("atList");
 
 const CHAT = { attachments: [], runId: null, abort: null, busy: false, composing: false, pinned: true, history: [], historyIndex: -1, lastRequest: null, painting: false };
@@ -3203,7 +3295,12 @@ function paintHistory(messages) {
 /** the short orientation line disappears as soon as there is a conversation */
 function paintChatEmpty() {
   const e = $("chatEmpty");
-  const empty = !(chatInner && chatInner.childElementCount);
+  /* #actDock is a permanent child of the log, so counting children counted it
+     and reported a log with a message in it as empty — the greeting, the wordmark
+     and the mark's height all keyed off that one number. The test is "has the log
+     got any message in it", and the dock is not a message. */
+  const msgs = chatInner ? chatInner.querySelectorAll(".msg").length : 0;
+  const empty = !msgs;
   if (e) e.hidden = !empty;
   /* One decision, three consequences: the orientation line, the mark, and which
      of the two grows to fill the column. The third is why this is a state and
@@ -3395,11 +3492,36 @@ function runCommand(value) {
   return true;
 }
 function showChatNetwork(on) { const banner = $("chatNetwork"); if (banner) banner.hidden = !on; }
+
+/* The line under the composer, and when it is allowed to speak.
+ *
+ * It used to always carry a dot and a word, and two of those three words were
+ * already on screen a few pixels above: "Working" beside the Thinking row, and
+ * "Ready" implied by that row being absent. Three signs of one fact is what made
+ * the foot of the panel feel crowded, so the line now goes quiet for the two
+ * words that say nothing new.
+ *
+ * What it must never do is go quiet when something went wrong. An error and a
+ * rate-limited retry are the two things in this whole panel that appear nowhere
+ * else — the Thinking row reports steps, not outcomes — so both still land here,
+ * in the brand or danger ink, with the dot beside them.
+ *
+ * The test is the text, not the kind, and that is the whole subtlety. The retry
+ * path calls this with kind "working" and a real sentence in it; silencing on
+ * the kind would have swallowed the only notice the user gets that their request
+ * is being held up by someone else's quota. */
 function setChatStatus(kind, text) {
   const dot = $("ocStatusDot");
   const status = $("ocStatusText");
-  if (dot) dot.className = "status-dot" + (kind === "working" ? " work" : kind === "error" ? " err" : "");
-  if (status) status.textContent = text || (kind === "working" ? "Working" : kind === "error" ? "Error" : "Ready");
+  const generic = !text || text === "Working" || text === "Ready";
+  if (dot) {
+    dot.className = "status-dot" + (kind === "working" ? " work" : kind === "error" ? " err" : "");
+    dot.hidden = generic;
+  }
+  if (status) {
+    status.textContent = generic ? "" : text;
+    status.hidden = generic;
+  }
 }
 
 function setChatBusy(on, runId) {
@@ -3409,62 +3531,34 @@ function setChatBusy(on, runId) {
   if (chatStop) chatStop.hidden = !on;
   if (chatInput) chatInput.placeholder = on ? "Agent is working — press ■ to stop" : "Message your agent…";
   setChatStatus(on ? "working" : "ready", on ? "Working" : "Ready");
-  if (chatMeta) paintChatMeta();
+  paintChatMeta();
 }
 
-/** the header stays one line: model, provider, and a dot while it works */
-function paintChatWorking() {
-  const chip = $("chatWork");
-  if (!chip) return;
-  const on = !!CHAT.busy;
-  chip.hidden = !on;
-  if (!on) return;
-  const last = ACT.steps[ACT.steps.length - 1];
-  chip.textContent = last ? last.label : "Working";
-  chip.title = last ? last.label : "the agent is working";
-}
-
+/* One place for the model and one for the state, both on the line under the
+ * composer.
+ *
+ * This used to build a whole button and two spans for a #chatMeta element that
+ * was never in the document — the $() for it returned null, so the branch below
+ * never ran and the nodes were built and dropped on every repaint. Meanwhile
+ * the model was *also* in a chip inside the composer and in the bottom status
+ * bar, so it had three homes and the one in the composer was the one nobody
+ * needed: a model is not a control you reach for mid-sentence. */
 function paintChatMeta() {
-  paintChatWorking();
   const p = activeProfile();
   const pv = providerOf(p);
-  if (!p) {
-    const modelChip = $("chatModelChipText");
-    if (modelChip) modelChip.textContent = "Model";
-    const m0 = $("ocModel"); if (m0) m0.textContent = "no model chosen";
-    const pr0 = $("ocProvider"); if (pr0) pr0.textContent = "";
-    return;
-  }
-  const model = p.model || (pv && pv.model) || "";
+  const model = p ? (p.model || (pv && pv.model) || "") : "";
   const name = model ? modelMeta(model).name : "no model chosen";
-  const modelChip = $("chatModelChipText");
-  if (modelChip) modelChip.textContent = name;
-  const head = document.createElement("button");
-  head.type = "button";
-  head.className = "aihead";
-  head.title = model ? model + " — click to switch" : "choose a model";
-  const nm = document.createElement("span");
-  nm.className = "ainm";
-  nm.textContent = name;
-  const cv = document.createElement("span");
-  cv.className = "aicv";
-  cv.textContent = "▾";
-  head.append(nm, cv);
-  head.addEventListener("click", () => openChangeModel());
-  const via = document.createElement("span");
-  via.className = "aivia";
-  via.textContent = (pv && pv.name) || "no provider";
-  const st = document.createElement("span");
-  st.className = "aist" + (CHAT.busy ? " on" : "");
-  st.textContent = CHAT.busy ? "working…" : "";
-  if (chatMeta) {
-    chatMeta.textContent = "";
-    chatMeta.append(head, via, st);
-  }
-  /* the OpenCode status line mirrors the same facts at the bottom of the chat */
   const ocModel = $("ocModel");
+  if (ocModel) {
+    ocModel.textContent = name;
+    /* The visible text is the model's name, so the accessible name has to carry
+     * it too — a button that announces only "Change model" while reading
+     * "gpt-4o" on screen is a name that does not match the thing it labels. */
+    const label = model ? model + " — click to switch" : "choose a model";
+    ocModel.title = label;
+    ocModel.setAttribute("aria-label", label);
+  }
   const ocProvider = $("ocProvider");
-  if (ocModel) ocModel.textContent = name;
   if (ocProvider) ocProvider.textContent = (pv && pv.name) || "";
 }
 
@@ -3836,12 +3930,10 @@ function sesRenameActive() {
 }
 
 function wireChat() {
-  // the heading that used to be renamed from is gone; the active session tab is
-  // the control now, so there is nothing to wire here
-  const title = $("chatSessionTitle");
-  if (title) title.addEventListener("click", () => sesRenameActive());
-
-  if ($("chatModelChip")) $("chatModelChip").addEventListener("click", openChangeModel);
+  /* The model moved out of the composer and down onto the line under it, so
+   * this is where the switcher is opened from now. */
+  const ocModelBtn = $("ocModel");
+  if (ocModelBtn) ocModelBtn.addEventListener("click", openChangeModel);
   if (chatInput) {
     chatHistoryLoad();
     chatInput.addEventListener("input", () => { composerGrow(); paintCommands(); });
@@ -3902,6 +3994,17 @@ function wireChat() {
   if ($("curOpenChat")) $("curOpenChat").addEventListener("click", () => setTab("chat"));
   if ($("curReason")) $("curReason").addEventListener("change", e => {
     AGENT.reasoning = e.target.value;
+    const t = $("chatThink");
+    if (t) t.value = e.target.value;
+    saveReasoning(e.target.value);
+  });
+  /* the tray's copy of the same setting. It writes through both, so choosing a
+     level in the composer updates the select in Settings too, instead of the two
+     showing different answers until the page is reloaded. */
+  if ($("chatThink")) $("chatThink").addEventListener("change", e => {
+    AGENT.reasoning = e.target.value;
+    const s = $("curReason");
+    if (s) s.value = e.target.value;
     saveReasoning(e.target.value);
   });
   /* the model keeps the turns we already sent, so show them again rather
@@ -4592,7 +4695,7 @@ function paintAgent() {
   const pv = providerOf(p);
   const ready = agentReady();
 
-  if (chatMeta) paintChatMeta();
+  paintChatMeta();
   if (typeof paintAllFloatHeaders === "function") paintAllFloatHeaders();
   paintCurrentAi();
 
@@ -4651,6 +4754,17 @@ function paintReasoning(pv) {
   const can = !!pv && pv.protocol === "openai-compatible";
   wrap.hidden = !can;
   if (can) sel.value = (pv.params && pv.params.reasoning) || "auto";
+  /* the same choice, in the composer's tray, from this one function — the two
+   * copies are the same setting and a second place that decides on its own is a
+   * second answer. It is written after the return above rather than before it,
+   * so the settings copy stays the one that can be missing without taking the
+   * tray's copy with it. */
+  const cw = $("chatThinkWrap");
+  const cs = $("chatThink");
+  if (cw && cs) {
+    cw.hidden = !can;
+    if (can) cs.value = (pv.params && pv.params.reasoning) || "auto";
+  }
 }
 
 async function saveReasoning(value) {
@@ -7437,11 +7551,10 @@ function paintSessions() {
       list.appendChild(row);
     }
   }
-  const open = sessFind(active);
-  const bar = $("sesName");
-  if (bar) bar.textContent = open && open.title ? open.title : "";
-  const title = $("chatSessionTitle");
-  if (title) title.textContent = (open && open.title) || "Chat Session";
+  /* The session's name used to be echoed into a footer span and a heading that
+   * both stopped existing when the footer became the line under the composer.
+   * The active tab already carries the name and carries the rename control, so
+   * there is nothing left to paint here — what remains is the model's. */
   paintChatMeta();
   const count = $("sesCount");
   if (count) count.textContent = shown.length + (shown.length === 1 ? " session" : " sessions");
@@ -7770,9 +7883,10 @@ function actSetWanted(on) {
   if (on) actShow(); else actHide();
 }
 
-function actEl() { return $("thinkRow"); }
-function actLabel() { return $("thinkLabel"); }
-function actList() { return $("thinkSteps"); }
+/* The three element handles this used to need are gone with the disclosure they
+   belonged to. The activity is #actDock now, and it is read directly where it is
+   painted. actEl/actLabel/actList would have kept returning a <details> that
+   nothing fills, which is the same dead element the old model chip was. */
 
 function actPush(key, state, label) {
   const meta = ACT_STEPS[key] || { ico: "•", label: "Working" };
@@ -7789,37 +7903,61 @@ function actPush(key, state, label) {
 }
 
 function actShow() {
-  const row = actEl();
-  if (!row || !ACT.live) return;
+  const box = $("actDock");
+  if (!box || !ACT.live) return;
+  box.hidden = false;
   const list = ACT.steps;
-  const last = list[list.length - 1];
-  row.hidden = false;
-  row.classList.add("live");
-  const l = actLabel();
-  if (l) l.textContent = last ? last.label + (last.state === "now" ? "…" : "") : "Thinking…";
-  const c = $("thinkCount");
-  if (c) c.textContent = list.length > 1 ? list.length + (list.length === 1 ? " step" : " actions") : "";
-  paintChatWorking();
-  actSave();
-  const box = actList();
-  if (!box) return;
-  box.textContent = "";
+  /* drop any row we no longer have a step for — the list is capped at 40 */
+  while (box.childElementCount > list.length) box.removeChild(box.lastElementChild);
   list.forEach((s, i) => {
-    const row2 = document.createElement("div");
-    row2.className = "tstep " + (i === list.length - 1 ? "now" : s.state);
-    const ic = document.createElement("span");
-    ic.className = "tsico";
-    ic.textContent = s.ico;
-    const lb = document.createElement("span");
-    lb.textContent = s.label + (s.state === "ok" ? "" : "");
-    row2.append(ic, lb);
-    box.appendChild(row2);
+    let row = box.children[i];
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "act-row";
+      const ico = document.createElement("span");
+      ico.className = "act-ico";
+      const title = document.createElement("span");
+      title.className = "act-title";
+      row.append(ico, title);
+      box.appendChild(row);
+    }
+    row.className = "act-row " + s.state;
+    const ico = row.firstChild;
+    /* the icon is a different shape per state, so it is swapped rather than
+       class-styled: a spinner has to be a border ring and a tick has to be
+       glyphs, and one element cannot honestly be both */
+    const want = s.state === "now" ? "spin" : (s.state === "bad" ? "✕" : "✓");
+    if (ico.dataset.shape !== want) {
+      ico.dataset.shape = want;
+      ico.textContent = want === "spin" ? "" : want;
+      if (want === "spin") {
+        const r = document.createElement("span");
+        r.className = "spin";
+        ico.appendChild(r);
+      }
+    }
+    const title = row.children[1];
+    const text = s.label + (s.state === "now" ? "…" : "");
+    if (title.textContent !== text) title.textContent = text;
   });
+  actSave();
 }
 
 function actHide() {
-  const row = actEl();
-  if (row) { row.hidden = true; row.classList.remove("live"); }
+  /* Not a hide. Finished work is the record, and clearing it when the run ends
+     is what made the old strip worthless — the interesting part was over before
+     it could be read. The rows go when the next run starts, which is actReset's
+     job and not this one's.
+     
+     The live step is settled to finished rather than merely un-styled. Dropping
+     the class alone left the spinner on screen turning forever on a row that no
+     longer claimed to be working: the one animation in the panel that meant
+     nothing. Toggling this off mid-run is exactly when that happened. */
+  const box = $("actDock");
+  if (!box) return;
+  if (!ACT.steps.some(s => s.state === "now")) return;
+  for (const s of ACT.steps) if (s.state === "now") s.state = "ok";
+  actShow();
 }
 
 function actReset() {
@@ -7827,8 +7965,11 @@ function actReset() {
   ACT.steps = [];
   ACT.seen = 0;
   actHide();
-  const box = actList();
-  if (box) box.textContent = "";
+  /* the new run starts from nothing, so the old run's rows go here and nowhere
+     else — actHide deliberately keeps them, because "the run ended" is not the
+     same event as "start the next run" */
+  const box = $("actDock");
+  if (box) { box.textContent = ""; box.hidden = true; }
   try { sessionStorage.removeItem(ACT_KEY); } catch (e) { /* private mode */ }
 }
 
@@ -8439,10 +8580,8 @@ function wireRules() {
 }
 
 function wireActivity() {
-  const row = actEl();
-  if (row) {
-    row.addEventListener("toggle", () => { if (!row.hidden) { /* keep the steps fresh */ } });
-  }
+  /* the toggle is the only thing left to wire: the disclosure it used to open
+     is gone, along with the three element handles that fed it */
   const b = $("thinkToggle");
   if (b) b.addEventListener("click", () => actSetWanted(!actWanted()));
   actSetWanted(actWanted());
@@ -8487,6 +8626,13 @@ function voicePaint() {
 
 function voiceStop() {
   VOICE.on = false;
+  /* busy has to be cleared here too, and not only for tidiness. The button
+   * styles its two live states separately — on is the red pill, busy is the
+   * spinning ring — so a stopped recorder that kept busy=true left the control
+   * spinning with nothing behind it: the one state that says "working" while
+   * nothing is. Both the recorder's own stop handlers and this function run on
+   * the way down, but this one runs first, so it is the one that has to. */
+  VOICE.busy = false;
   try { if (VOICE.rec) VOICE.rec.stop(); } catch (e) { /* already stopped */ }
   VOICE.rec = null;
   voicePaint();
