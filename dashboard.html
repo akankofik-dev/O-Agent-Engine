@@ -2856,6 +2856,20 @@ const META = {
 function setTab(key){
   document.querySelectorAll("#nav .nav-item").forEach(a => a.classList.toggle("on", a.dataset.tab === key));
   document.querySelectorAll(".panel").forEach(p => p.classList.toggle("on", p.id === "p-" + key));
+  /* A shell is a process, and opening the page should not start one.
+   *
+   * The terminal used to call termNew() during startup, so every tab held a
+   * shell from the moment it loaded whether or not the terminal was ever looked
+   * at — a process and a WebSocket that cost nothing until the moment somebody
+   * ignored them. It also put a seventh connection on the origin at load: two
+   * sockets plus the five requests startup makes, against a browser's limit of
+   * six per host. Measured, the page's five load requests all came back together
+   * after about 430ms on an idle machine, having been asked for within 30ms of
+   * each other, which is what a queue in front of that limit looks like.
+   *
+   * So the shell is made the first time the terminal is opened, and closing the
+   * last one leaves none — the "+" makes the next. */
+  if (key === "terminal" && typeof TERM !== "undefined" && !TERM.tabs.size) termNew();
   document.body.classList.toggle("tab-settings", key === "settings");
   document.body.classList.toggle("tab-chat", key === "chat");
   /* Which panel is showing lives on <body>, not on the panel: all four panels
@@ -5747,8 +5761,18 @@ function termClose(id) {
   try { if (tab.ws) tab.ws.close(); } catch { /* already gone */ }
   TERM.tabs.delete(id);
   const next = TERM.tabs.keys().next();
-  if (next.done) termNew();
-  else termActivate(next.value);
+  /* Closing the last one leaves none. It used to open a replacement, which
+   * meant a shell could never be shut: closing the only tab started a new one
+   * in the same breath, and the process and socket it asked for were never used
+   * by anyone. The "+" is how you ask for a shell now, and the panel says so
+   * rather than pretending to be an empty terminal. */
+  if (next.done) {
+    TERM.active = null;
+    if (tPre) tPre.textContent = "no shell open — press + to start one";
+    termRenderTabs();
+  } else {
+    termActivate(next.value);
+  }
 }
 
 function termRestart() {
@@ -9584,7 +9608,6 @@ applyBackground();
 paintAppearance();
 
 termWire();
-termNew();
 wireChat();
 
 loadSkillCatalog().then(() => renderSkillCards([]));
