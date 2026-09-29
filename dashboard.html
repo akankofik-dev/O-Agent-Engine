@@ -758,7 +758,9 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * wanted no frame at all would be a different decision; this one is the same
  * decision as everything else, sized for what it holds. */
 body.tab-chat .wb { padding:8px; overflow:hidden; }
-body.tab-chat .wb-card { padding:0; }
+/* the flush card used to be spelled body.tab-chat .wb-card, but data-panel
+   lists all four panels that want it flush and chat is already in that list —
+   same declaration, same specificity, written twice. */
 /* The chat panel is the stage the session window is dragged around inside: it
    has to be positioned for a window to have anything to be positioned against.
    */
@@ -1827,6 +1829,14 @@ dialog.docdlg .dfoot { display:flex; align-items:center; gap:8px; padding:10px 1
 .floatwin.fw-drag { border-color:var(--fn-border-focus); }
 .floatwin.fw-max { border-radius:0; }
 .floatwin.fw-min { min-height:0; }
+/* floatAutoMode() calls a tiny workspace a "sheet" and pins it 8px from the
+   edge — but nothing here, so it stayed a window: an 8px radius and a 28px
+   shadow with 8px of room to sit in. The shadow had nowhere to fall and the
+   corners looked like a window shoved against the frame.
+   A sheet is flush and attached, so it drops both. This is the same reason
+   fw-max zeroes the radius; the shadow is the difference, and only the sheet
+   has no room for one. */
+.floatwin.fw-sheet { border-radius:0; box-shadow:none; }
 
 /* ------------------------------ header ------------------------------ */
 
@@ -2856,6 +2866,33 @@ const META = {
 function setTab(key){
   document.querySelectorAll("#nav .nav-item").forEach(a => a.classList.toggle("on", a.dataset.tab === key));
   document.querySelectorAll(".panel").forEach(p => p.classList.toggle("on", p.id === "p-" + key));
+  /* Sheets have to be re-decided when a panel comes into view, and this is the
+   * only place that knows a panel just became visible.
+   *
+   * floatTiny() answers from getBoundingClientRect(), and a panel that is not
+   * showing measures 0 by 0 — which is smaller than any threshold, so every
+   * window whose host is on a hidden panel reads as tiny. Whichever window was
+   * built or opened while its panel was off therefore kept its sheet class,
+   * because nothing re-ran floatAutoMode on the way back in: openFloat() only
+   * runs when a window is opened, and reclampFloats() only on a resize.
+   *
+   * That was invisible while fw-sheet had no rule attached. Now that a sheet
+   * drops its radius and its shadow, a stale class is a flat, shadowless window
+   * sitting in a panel with plenty of room. So ask again, here, after the panel
+   * class has been switched — one frame earlier the stage would still read 0.
+   *
+   * A window whose own panel is still off is skipped rather than re-measured: a
+   * hidden stage reads 0 by 0, so it would answer "tiny" for the wrong reason
+   * and pin the sheet class on for good. It gets its turn when its panel shows. */
+  if (typeof FLOAT !== "undefined") {
+    for (const win of FLOAT.windows.values()) {
+      const stage = win.host && floatStage(win.host);
+      if (!win.el || win.el.hidden || !stage) continue;
+      const r = stage.getBoundingClientRect();
+      if (!r.width && !r.height) continue;
+      floatAutoMode(win);
+    }
+  }
   /* A shell is a process, and opening the page should not start one.
    *
    * The terminal used to call termNew() during startup, so every tab held a
@@ -2870,7 +2907,12 @@ function setTab(key){
    * So the shell is made the first time the terminal is opened, and closing the
    * last one leaves none — the "+" makes the next. */
   if (key === "terminal" && typeof TERM !== "undefined" && !TERM.tabs.size) termNew();
-  document.body.classList.toggle("tab-settings", key === "settings");
+  /* tab-settings used to be toggled here and had no rule anywhere, which is not
+     the same as having nothing to do: it looked like Settings needed a
+     stylesheet of its own and did not have one. It does not. Everything the
+     panels share is keyed off data-panel below, and Settings is already in that
+     list at the .wb-card rule — the one panel that keeps its padding. Writing a
+     rule for it would have been inventing a design nobody asked for. */
   document.body.classList.toggle("tab-chat", key === "chat");
   /* Which panel is showing lives on <body>, not on the panel: all four panels
      share one .wb-card, so the card cannot know from inside which one it is
