@@ -1579,6 +1579,24 @@ class WSConn {
     socket.on('data', d => this.onData(d));
     socket.on('close', () => this.destroy());
     socket.on('error', () => this.destroy());
+    /* And the half-close, which is the one that was missed.
+     *
+     * Every session in the shell test closes with `socket.destroy()`, which
+     * drops the connection without a WebSocket close frame. That leaves the
+     * server's socket with its readable side already ended. With no handler for
+     * it the connection sits in CLOSE_WAIT forever, `close` never fires,
+     * `onclose` never runs, and the shell behind it is never killed.
+     *
+     * That is not a small leak. Each shell is two bash processes, the test opens
+     * thirteen shells per run, and the server was measured carrying 659 of them
+     * on one node. With that many idle shells the machine could not spawn a new
+     * one in under 3.6 seconds, which is what turned a 1600ms wait in the test
+     * into a failure. The leak was the flake.
+     *
+     * Ending the connection here is right for a WebSocket regardless: the peer
+     * has closed its sending side, so no further frame can arrive, and there is
+     * nothing left to keep open. */
+    socket.on('end', () => this.destroy());
   }
 
   onData(d) {
