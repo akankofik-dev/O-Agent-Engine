@@ -617,28 +617,16 @@ html[data-glass="1"] .wb-card { backdrop-filter:none; -webkit-backdrop-filter:no
  * indicator, 530 weight on the title, 12px gap inside a turn, 24px between
  * turns, and content-visibility:auto so a long chat does not cost a long layout.
  */
-/* The dock is the last thing in the column, not the first.
+/* A dock is created per run and appended where the work is happening, so the
+ * column's own gap is the spacing and nothing here has to guess at it.
  *
- * The note above says the work belongs in the conversation "between the
- * messages", and the eye lands at the bottom of a log — that is where the last
- * thing the agent said is, and that is where you are looking when you press
- * Enter. But #actDock is a permanent first child of #chatLogInner, so every row
- * in it, live spinner included, rendered above the entire transcript: the thing
- * the agent was doing right now sat at the top of a page you had not scrolled
- * to, and the live row was the one part of the dock that is only useful while
- * it is happening.
- *
- * order:1 puts it after the messages without moving the element, which matters —
- * the dock is read directly by id in several places, its children are indexed
- * positionally when rows are painted, and paintChatEmpty() counts .msg in the
- * log. Moving the node would have put all three at risk; this leaves every one of
- * them reading the same element it read before, in a different place on screen.
- *
- * chatScrollNow() scrolls to scrollHeight, so the dock being last is also what
- * the existing auto-scroll now follows. The old 10px bottom margin went with it:
- * that separated the dock from the message after it, and there is no message
- * after it now. The column's own 14px gap does the spacing. */
-.actdock { order:1; margin:0; }
+ * There is deliberately no `order` and no top or bottom margin. A dock is
+ * painted in DOM order, and DOM order here is the order things happened: a run's
+ * rows are appended after the message that asked for the run, and the next
+ * message is appended after them. So each run's work sits between its own
+ * message and the next one, which is what the note above asks for. An order
+ * value would hoist every dock past every message and undo exactly that. */
+.actdock { margin:0; }
 .actdock[hidden] { display:none; }
 .act-row { display:flex; align-items:center; gap:8px; width:100%;
   border:0; background:transparent; padding:3px 0; margin:0; text-align:left;
@@ -2357,7 +2345,7 @@ dialog.aidl::backdrop { background:rgba(0,0,0,.5); }
               <div class="chatlog" id="chatLog" role="log" aria-live="polite" aria-label="Octop conversation">
                 <div class="chatempty" id="chatEmpty"><span class="oc-empty-title" id="ocEmptyTitle">Ready when you are.</span><div class="empty-prompts"><button type="button" data-prompt="Open the browser and inspect the current page">Inspect the current page</button><button type="button" data-prompt="Summarize what is open in the browser">Summarize the browser</button><button type="button" data-prompt="Help me automate a browser task">Plan an automation</button></div></div>
                 <button class="latest-btn" id="chatLatest" type="button" hidden>Latest messages</button>
-                <div class="chatinner" id="chatLogInner"><div class="actdock" id="actDock" hidden></div></div>
+                <div class="chatinner" id="chatLogInner"></div>
               </div>
               <div class="chat-mark"><svg viewBox="0 0 49 7" width="392" height="56" role="img" aria-label="O Browser" class="ob-mark"><g class="ob-mark-dim"><rect x="1" y="0" width="1" height="1"/><rect x="2" y="0" width="1" height="1"/><rect x="3" y="0" width="1" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="0" y="5" width="1" height="1"/><rect x="4" y="5" width="1" height="1"/><rect x="1" y="6" width="1" height="1"/><rect x="2" y="6" width="1" height="1"/><rect x="3" y="6" width="1" height="1"/></g><g class="ob-mark-strong"><rect x="8" y="0" width="1" height="1"/><rect x="9" y="0" width="1" height="1"/><rect x="10" y="0" width="1" height="1"/><rect x="11" y="0" width="1" height="1"/><rect x="8" y="1" width="1" height="1"/><rect x="12" y="1" width="1" height="1"/><rect x="8" y="2" width="1" height="1"/><rect x="12" y="2" width="1" height="1"/><rect x="8" y="3" width="1" height="1"/><rect x="9" y="3" width="1" height="1"/><rect x="10" y="3" width="1" height="1"/><rect x="11" y="3" width="1" height="1"/><rect x="8" y="4" width="1" height="1"/><rect x="12" y="4" width="1" height="1"/><rect x="8" y="5" width="1" height="1"/><rect x="12" y="5" width="1" height="1"/><rect x="8" y="6" width="1" height="1"/><rect x="9" y="6" width="1" height="1"/><rect x="10" y="6" width="1" height="1"/><rect x="11" y="6" width="1" height="1"/><rect x="14" y="0" width="1" height="1"/><rect x="15" y="0" width="1" height="1"/><rect x="16" y="0" width="1" height="1"/><rect x="17" y="0" width="1" height="1"/><rect x="14" y="1" width="1" height="1"/><rect x="18" y="1" width="1" height="1"/><rect x="14" y="2" width="1" height="1"/><rect x="18" y="2" width="1" height="1"/><rect x="14" y="3" width="1" height="1"/><rect x="15" y="3" width="1" height="1"/><rect x="16" y="3" width="1" height="1"/><rect x="17" y="3" width="1" height="1"/><rect x="14" y="4" width="1" height="1"/><rect x="16" y="4" width="1" height="1"/><rect x="14" y="5" width="1" height="1"/><rect x="17" y="5" width="1" height="1"/><rect x="14" y="6" width="1" height="1"/><rect x="18" y="6" width="1" height="1"/><rect x="21" y="0" width="1" height="1"/><rect x="22" y="0" width="1" height="1"/><rect x="23" y="0" width="1" height="1"/><rect x="20" y="1" width="1" height="1"/><rect x="24" y="1" width="1" height="1"/><rect x="20" y="2" width="1" height="1"/><rect x="24" y="2" width="1" height="1"/><rect x="20" y="3" width="1" height="1"/><rect x="24" y="3" width="1" height="1"/><rect x="20" y="4" width="1" height="1"/><rect x="24" y="4" width="1" height="1"/><rect x="20" y="5" width="1" height="1"/><rect x="24" y="5" width="1" height="1"/><rect x="21" y="6" width="1" height="1"/><rect x="22" y="6" width="1" height="1"/><rect x="23" y="6" width="1" height="1"/><rect x="26" y="0" width="1" height="1"/><rect x="30" y="0" width="1" height="1"/><rect x="26" y="1" width="1" height="1"/><rect x="30" y="1" width="1" height="1"/><rect x="26" y="2" width="1" height="1"/><rect x="30" y="2" width="1" height="1"/><rect x="26" y="3" width="1" height="1"/><rect x="30" y="3" width="1" height="1"/><rect x="26" y="4" width="1" height="1"/><rect x="30" y="4" width="1" height="1"/><rect x="26" y="5" width="1" height="1"/><rect x="28" y="5" width="1" height="1"/><rect x="30" y="5" width="1" height="1"/><rect x="27" y="6" width="1" height="1"/><rect x="28" y="6" width="1" height="1"/><rect x="29" y="6" width="1" height="1"/><rect x="33" y="0" width="1" height="1"/><rect x="34" y="0" width="1" height="1"/><rect x="35" y="0" width="1" height="1"/><rect x="36" y="0" width="1" height="1"/><rect x="32" y="1" width="1" height="1"/><rect x="32" y="2" width="1" height="1"/><rect x="33" y="3" width="1" height="1"/><rect x="34" y="3" width="1" height="1"/><rect x="35" y="3" width="1" height="1"/><rect x="36" y="4" width="1" height="1"/><rect x="36" y="5" width="1" height="1"/><rect x="32" y="6" width="1" height="1"/><rect x="33" y="6" width="1" height="1"/><rect x="34" y="6" width="1" height="1"/><rect x="35" y="6" width="1" height="1"/><rect x="38" y="0" width="1" height="1"/><rect x="39" y="0" width="1" height="1"/><rect x="40" y="0" width="1" height="1"/><rect x="41" y="0" width="1" height="1"/><rect x="42" y="0" width="1" height="1"/><rect x="38" y="1" width="1" height="1"/><rect x="38" y="2" width="1" height="1"/><rect x="38" y="3" width="1" height="1"/><rect x="39" y="3" width="1" height="1"/><rect x="40" y="3" width="1" height="1"/><rect x="41" y="3" width="1" height="1"/><rect x="38" y="4" width="1" height="1"/><rect x="38" y="5" width="1" height="1"/><rect x="38" y="6" width="1" height="1"/><rect x="39" y="6" width="1" height="1"/><rect x="40" y="6" width="1" height="1"/><rect x="41" y="6" width="1" height="1"/><rect x="42" y="6" width="1" height="1"/><rect x="44" y="0" width="1" height="1"/><rect x="45" y="0" width="1" height="1"/><rect x="46" y="0" width="1" height="1"/><rect x="47" y="0" width="1" height="1"/><rect x="44" y="1" width="1" height="1"/><rect x="48" y="1" width="1" height="1"/><rect x="44" y="2" width="1" height="1"/><rect x="48" y="2" width="1" height="1"/><rect x="44" y="3" width="1" height="1"/><rect x="45" y="3" width="1" height="1"/><rect x="46" y="3" width="1" height="1"/><rect x="47" y="3" width="1" height="1"/><rect x="44" y="4" width="1" height="1"/><rect x="46" y="4" width="1" height="1"/><rect x="44" y="5" width="1" height="1"/><rect x="47" y="5" width="1" height="1"/><rect x="44" y="6" width="1" height="1"/><rect x="48" y="6" width="1" height="1"/></g><g class="ob-mark-count"><rect x="1" y="1" width="1" height="1"/><rect x="2" y="1" width="1" height="1"/><rect x="3" y="1" width="1" height="1"/><rect x="9" y="1" width="1" height="1"/><rect x="10" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/><rect x="9" y="4" width="1" height="1"/><rect x="10" y="4" width="1" height="1"/><rect x="11" y="4" width="1" height="1"/><rect x="15" y="1" width="1" height="1"/><rect x="16" y="1" width="1" height="1"/><rect x="17" y="1" width="1" height="1"/><rect x="21" y="1" width="1" height="1"/><rect x="22" y="1" width="1" height="1"/><rect x="23" y="1" width="1" height="1"/><rect x="45" y="1" width="1" height="1"/><rect x="46" y="1" width="1" height="1"/><rect x="47" y="1" width="1" height="1"/></g></svg></div>
               <div class="chatfoot">
@@ -3481,10 +3469,20 @@ function addMsg(who, text, opts) {
  * meant the activity rows the whole change was about never rendered at all.
  *
  * Removing .msg and nothing else is the narrower act, and it says what it means:
- * the conversation is being replaced, the log is not. */
+ * the conversation is being replaced, the log is not.
+ *
+ * Except that the docks are in the log now, one per run, and they are the record
+ * of runs that belong to the conversation being replaced. Leaving them would put
+ * finished activity rows under an empty log, which is the one state that is not
+ * a record of anything. So they go too — and unlike the permanent dock this note
+ * is about, removing one costs nothing: actBox() builds a new one on the next
+ * paint and checks isConnected, so a run that was live through the clear carries
+ * on in a fresh dock rather than losing its rows. */
 function chatClearMessages() {
   if (!chatInner) return;
   for (const node of [...chatInner.querySelectorAll(".msg")]) node.remove();
+  for (const node of [...chatInner.querySelectorAll(".actdock")]) node.remove();
+  ACT.box = null;
 }
 
 function paintHistory(messages) {
@@ -8148,7 +8146,7 @@ const ACT_STEPS = {
   engine: { ico: "⚙", label: "Using the browser" },
 };
 
-const ACT = { live: false, steps: [], seen: 0, want: true };
+const ACT = { live: false, steps: [], seen: 0, want: true, box: null };
 
 function actWanted() {
   if (ACT.want) return true;
@@ -8192,8 +8190,34 @@ function actPush(key, state, label) {
   actShow();
 }
 
+/** The dock this run paints into, made on first use and left in the log after.
+ *
+ *  One dock per run, appended at the end, so a finished run's rows stay in the
+ *  transcript where the work happened. It used to be one dock that was cleared
+ *  when the next run started, and actReset() said so plainly: "the old run's
+ *  rows go here and nowhere else". That contradicted the note above the rule,
+ *  which promises the rows turn into a record of what the agent did — a record
+ *  that was thrown away the moment you asked for anything else, and the record is
+ *  the part worth keeping. Spinner rows are for the seconds a run is working;
+ *  finished rows are for reading afterwards.
+ *
+ *  Appending is what makes the placement right, and it also rules out the
+ *  alternative: a single dock parked at the end by CSS order would hoist every
+ *  run's work past every message, so the first run's rows would sit below the
+ *  message that started the second. In the DOM they cannot, because the message
+ *  that starts a run is appended before its dock and the next message after it. */
+function actBox() {
+  if (ACT.box && ACT.box.isConnected) return ACT.box;
+  const box = document.createElement("div");
+  box.className = "actdock";
+  box.hidden = true;
+  (chatInner || chatLog).appendChild(box);
+  ACT.box = box;
+  return box;
+}
+
 function actShow() {
-  const box = $("actDock");
+  const box = actBox();
   if (!box || !ACT.live) return;
   box.hidden = false;
   const list = ACT.steps;
@@ -8236,14 +8260,17 @@ function actShow() {
 function actHide() {
   /* Not a hide. Finished work is the record, and clearing it when the run ends
      is what made the old strip worthless — the interesting part was over before
-     it could be read. The rows go when the next run starts, which is actReset's
-     job and not this one's.
-     
+     it could be read.
+
+     Nor does the next run clear it. There is one dock per run now, appended
+     where the work happened, so this run's rows stay above the message that
+     starts the next one and actReset() has nothing to throw away.
+
      The live step is settled to finished rather than merely un-styled. Dropping
      the class alone left the spinner on screen turning forever on a row that no
      longer claimed to be working: the one animation in the panel that meant
      nothing. Toggling this off mid-run is exactly when that happened. */
-  const box = $("actDock");
+  const box = ACT.box;
   if (!box) return;
   if (!ACT.steps.some(s => s.state === "now")) return;
   for (const s of ACT.steps) if (s.state === "now") s.state = "ok";
@@ -8254,12 +8281,14 @@ function actReset() {
   ACT.live = false;
   ACT.steps = [];
   ACT.seen = 0;
+  /* settle the outgoing run before letting go of its dock, so a step that was
+     live when the new run was queued ends up finished rather than spinning */
   actHide();
-  /* the new run starts from nothing, so the old run's rows go here and nowhere
-     else — actHide deliberately keeps them, because "the run ended" is not the
-     same event as "start the next run" */
-  const box = $("actDock");
-  if (box) { box.textContent = ""; box.hidden = true; }
+  /* Dropping the reference is what starts a new dock. The old one is left in the
+     log with its rows, which is the record the note above the rule promises;
+     the next actShow() builds a fresh one and appends it, so this run's work
+     lands below the message that asked for it and above whatever comes next. */
+  ACT.box = null;
   try { sessionStorage.removeItem(ACT_KEY); } catch (e) { /* private mode */ }
 }
 
