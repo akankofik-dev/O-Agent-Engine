@@ -132,8 +132,17 @@ const CLAIMS = [
   { sel: '.msg .body', prop: 'font-weight', want: '400', from: '--font-weight-regular', why: 'body weight; 650 read as a wall' },
   { sel: '.msg .body', prop: 'letter-spacing', want: '0', from: '--letter-spacing-normal', why: 'prose was tracked at .01em' },
   { sel: '.msg .body', prop: 'max-width', want: '48rem', from: '--container-3xl', why: 'the measure a conversation is read at' },
-  { sel: '.msg .who', prop: 'font-weight', want: '500', from: '--font-weight-medium', why: 'the label, findable without shouting' },
-  { sel: '.msg .who', prop: 'font-size', want: '11px', from: 'the smallest of the three sizes in use', why: 'the label' },
+  /* The label is deliberately not a straight copy of --font-weight-medium.
+   *
+   * 500 was the first attempt and it was wrong in the only way that matters: it
+   * is the same weight as nothing else on the page, so nothing drew the eye to
+   * it, and the column stayed one voice. 600 is a step above the 400 body and a
+   * step below the 500 that the time and the file chips use, so the name is
+   * found first and the words second — which is the order they have to be read
+   * in. The token it departs from is named so the departure is a decision on the
+   * record rather than a number that drifted. */
+  { sel: '.msg .who', prop: 'font-weight', want: '600', from: 'above --font-weight-medium (500), below the body 650 it replaced', why: 'the name has to be found before the words' },
+  { sel: '.msg .who', prop: 'font-size', want: '12px', from: 'between --font-size-small (13px) and the 11px it was', why: 'the label' },
   { sel: '.msg .who', prop: 'letter-spacing', want: '0', from: '--letter-spacing-normal', why: 'no caps, so no tracking to compensate' },
   { sel: '.msg .body strong', prop: 'font-weight', want: '500', from: '--font-weight-medium', why: 'emphasis, not a second weight axis' },
   { sel: '.composer', prop: 'border-radius', want: '8px', from: '--radius-lg (.5rem)', why: 'a document surface, not a floating card' },
@@ -215,15 +224,93 @@ check('no rule sets both a heading and a border under it', () => {
   }
 });
 
-check('the two speakers share one left edge', () => {
-  /* The old bubble put the user's text 12px right of the agent's. One measure and
-     one inset is what stops a column looking laid out rather than written. */
-  const user = rule('.msg.u .msghead::before') || '';
-  const agent = rule('.msg .msghead::before') || '';
-  const upad = /padding/.test(user) ? 1 : 0;
-  assert.ok(upad === 0, '.msg.u has its own padding, so its text starts off the shared edge');
-  const ua = /align-items:\s*(\w+)/.exec(agent);
-  assert.ok(!ua || ua[1] === 'center', 'the avatar is not centred, so the two labels sit differently');
+/* ---- the two speakers must be told apart ---------------------------------
+ *
+ * The restyle made the column one voice. The label went to 11px in the tertiary
+ * colour, which nobody can read at a glance, and then the file's own comment —
+ * "the reader tells them apart by the word above" — became a false claim about
+ * the screen. Nothing tested that the two were distinguishable, because every
+ * other assertion in this file is about how the type looks and not about who said
+ * what. So it is asserted here, and each part names the job it is doing.
+ */
+check('the label is readable, because it is the only thing that names the speaker', () => {
+  const who = rule('.msg .who') || '';
+  const size = prop('.msg .who', 'font-size');
+  const weight = prop('.msg .who', 'font-weight');
+  const colour = prop('.msg .who', 'color');
+  assert.ok(parseInt(size, 10) >= 12, 'the label is ' + size + '; below 12px it stops being readable at a glance');
+  assert.ok(parseInt(weight, 10) >= 600, 'the label is ' + weight + '; it has to out-weigh the body to be found');
+  assert.ok(/--fn-text-(secondary|primary)/.test(colour),
+    'the label is ' + colour + ' — the tertiary shade is a shade, not a label');
+  /* `text-transform` is not in the rule at all now, which is the point. The
+     assertion is that it is *absent* rather than set to none — a rule that says
+     `text-transform:none` is still carrying the earlier decision in a form nobody
+     can see, and the check should say so rather than pass on the value. */
+  assert.ok(!/text-transform/.test(who),
+    'the rule still names text-transform: ' + who.trim() + ' — uppercase was the thing that made the label read as a heading');
+});
+
+check('the person\'s own words are marked as quoted material, and the answer is brighter', () => {
+  const u = rule('.msg.u .body') || '';
+  const a = rule('.msg .body') || '';
+  assert.ok(/border-left:2px solid/.test(u),
+    '.msg.u has no left rule, so a question and an answer look identical');
+  assert.ok(/padding-left:14px/.test(u),
+    'the rule is drawn but nothing clears it, so it lands on top of the first letter');
+  const uc = /color:\s*([^;]+)/.exec(u);
+  const ac = /color:\s*([^;]+)/.exec(a);
+  assert.ok(uc && ac, 'both sides need an explicit colour');
+  assert.notStrictEqual(uc[1].trim(), ac[1].trim(),
+    'both sides are ' + uc[1].trim() + ' — that is the whole bug');
+});
+
+check('the two still share the measure, and the rule is inside it', () => {
+  /* The bubble put the user's text 12px right of the agent's, which is what made
+     the column look laid out rather than written. The rule is drawn inward, with
+     padding on the inside of it, so the text still starts at the same x. */
+  const u = rule('.msg.u .body') || '';
+  const width = prop('.msg .body', 'max-width');
+  assert.ok(/48rem/.test(width), 'the shared measure is ' + width);
+  assert.ok(!/max-width/.test(u), '.msg.u narrows the measure, so the two columns are different widths');
+  const pad = parseInt(/padding-left:(\d+)px/.exec(u)[1], 10);
+  const border = parseInt(/border-left:(\d+)px/.exec(u)[1], 10);
+  assert.ok(pad >= border, pad + 'px of padding does not clear a ' + border + 'px rule');
+});
+
+check('an error does not end up with two left rules', () => {
+  const ue = rule('.msg.u.err .body');
+  assert.ok(ue, '.msg.u.err has no rule of its own, so a failed turn wears both the quotation rule and the error colour');
+  const lefts = (ue.match(/border-left/g) || []).length;
+  assert.strictEqual(lefts, 1, '.msg.u.err sets border-left ' + lefts + ' times');
+  assert.ok(!/border-secondary/.test(ue) || /danger/.test(ue), 'the error colour is gone');
+});
+
+check('an error in an agent turn is still the agent turn', () => {
+  const a = rule('.msg .body') || '';
+  const ae = rule('.msg.err .body') || '';
+  assert.ok(/text-primary/.test(a), 'the agent is not in the primary colour to begin with');
+  assert.ok(/danger/.test(ae), '.msg.err lost the error colour');
+});
+
+check('the initials are distinct, so a run of questions is legible', () => {
+  const ua = rule('.msg.u .msghead::before') || '';
+  const aa = rule('.msg .msghead::before') || '';
+  const ul = (/content:\s*"([^"]*)"/.exec(ua) || [])[1];
+  const al = (/content:\s*"([^"]*)"/.exec(aa) || [])[1];
+  assert.ok(ul && al, 'one of the two has no letter in it');
+  assert.notStrictEqual(ul, al, 'both are "' + ul + '"');
+});
+
+check('the agent\'s own name is still the product name', () => {
+  /* The label default lives in addMsg, not in the stylesheet, so the check reads
+     it from the script. A restyle that changes how the label looks must not
+     quietly change what it says. */
+  const at = DASH.indexOf('function addMsg');
+  assert.ok(at > 0, 'addMsg is gone');
+  const body = DASH.slice(at, at + 900);
+  const m = /who === "u" \? "You" : "([^"]*)"/.exec(body);
+  assert.ok(m, 'the label default is gone from addMsg');
+  assert.strictEqual(m[1], 'O Agent', 'the agent is labelled "' + m[1] + '"');
 });
 
 console.log('\n' + passed + ' passed, ' + failures.length + ' failed');

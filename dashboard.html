@@ -1397,10 +1397,21 @@ body.tab-chat .wb-head { display:none; }
  * words. Neither is a thing anyone names, and both of them are why a column of
  * chat can look laid out rather than written.
  *
- * So the two share a rule. One left edge, one measure, one rhythm, and the reader
- * tells them apart by the word above, which is what the word is for. The 1px of
- * vertical padding is the one thing the bubble was doing that the prose was not,
- * and it is kept so an error's left border still lands on the same line. */
+ * So the two share a rule. One left edge, one measure, one rhythm.
+ *
+ * And that is where this went wrong. "The reader tells them apart by the word
+ * above" is true only if the word above can be read — and the restyle made it
+ * 11px in the tertiary colour, which is a shade nobody can read at a glance. So
+ * the label stopped doing its one job and the column became one voice: twelve
+ * paragraphs of an answer and one sentence of a question, set identically, and
+ * nothing on the screen saying which is which.
+ *
+ * The fix is not to go back to a bubble. A bubble puts the two speakers on
+ * different insets, and the column stops being a column. It is to make the
+ * question legible as a question: the person's own words carry a left rule and sit
+ * one step back in colour, the way quoted material does in a document, and the
+ * label is readable again. Both still share the measure and the left edge of the
+ * measure; what differs is the weight of the ink, not where the ink starts. */
 .msg { display:flex; flex-direction:column; align-items:flex-start; gap:3px; position:relative; }
 .msg.same { margin-top:-8px; }
 .msg .msghead { display:flex; align-items:center; gap:8px; align-self:stretch; width:100%; min-height:20px; }
@@ -1433,16 +1444,52 @@ body.tab-chat .wb-head { display:none; }
  * The body weight is the one that matters most and is the least obvious. Chat
  * prose at 650 reads as a wall; a transcript is a document, and a document is
  * 400. The head and the time stay heavier than the body, so the eye still finds
- * the two without either of them shouting. */
-.msg .who { font-size:11px; font-weight:500; letter-spacing:0; text-transform:none;
-  color:var(--fn-text-tertiary); }
+ * the two without either of them shouting.
+ *
+ * The label is at --text-weak's contrast, not --text-weakest's, because it is the
+ * only thing that says who is speaking. Tertiary at 11px was unreadable at a
+ * glance and the column became one voice. It is 12px and secondary, and the
+ * speaker's own initials are 600 so the eye lands on the name first and the words
+ * second. */
+/* No text-transform here on purpose, and the test asserts its absence rather than
+   its value. It was `uppercase` — which is why the name read as a heading rather
+   than as a label, and why the restyle's 11px tertiary version stopped naming the
+   speaker at all. Leaving `text-transform:none` in place would keep that decision
+   in the file in a form nobody can see, where the next person to raise the size
+   would raise it back. */
+.msg .who { font-size:12px; font-weight:600; letter-spacing:0;
+  color:var(--fn-text-secondary); }
 .msg .time { font-size:11px; color:var(--fn-text-quaternary); font-variant-numeric:tabular-nums; margin-left:auto; }
 .msg .body { font-size:14px; line-height:1.8; font-weight:400; letter-spacing:0;
   color:var(--fn-text-primary); word-break:break-word;
   max-width:48rem; align-self:stretch; padding:1px 0; }
 .msg .msghead::before { content:"O"; display:grid; place-items:center; width:20px; height:20px; flex:none; border:1px solid var(--fn-border-input-alt);
-  border-radius:50%; color:var(--fn-text-secondary); font-size:10px; font-weight:500; }
-.msg.u .msghead::before { content:"U"; background:var(--fn-bg-secondary); color:var(--fn-text-primary); }
+  border-radius:50%; color:var(--fn-text-secondary); font-size:10px; font-weight:600; }
+
+/* ---- telling the two apart without moving either one ---------------------
+ *
+ * The measure and the left edge are shared, and they stay shared: that is what
+ * keeps the column a column. What differs is the weight of the ink, which is how
+ * a document marks quoted material — and a person's own question is quoted
+ * material in a transcript.
+ *
+ * Three things, each doing one job, so no single one has to be loud:
+ *
+ *   a left rule      the shape of a quotation, seen out of the corner of the eye
+ *   a step back      the question is in --text-secondary, the answer in primary,
+ *                    so the answer is the brighter thing on the page
+ *   a readable label so the name is not the thing doing the work
+ *
+ * The rule is 2px and sits inside the measure rather than pushing the text right,
+ * which is the one thing a bubble did that made the column look laid out. */
+.msg.u .body { border-left:2px solid var(--fn-border-secondary); padding-left:14px;
+  color:var(--fn-text-secondary); }
+.msg.u .who { color:var(--fn-text-primary); }
+.msg.u .msghead::before { content:"U"; background:var(--fn-bg-secondary);
+  color:var(--fn-text-primary); border-color:var(--fn-border-secondary); }
+/* an error belongs to the run it happened in, and it must not inherit the
+   quotation rule — two left rules on one block is a mistake, not a style */
+.msg.u.err .body { border-left:2px solid var(--fn-color-danger); color:var(--fn-text-secondary); }
 
 .msg.err .body { border-left:2px solid var(--fn-color-danger); padding-left:10px; }
 .msg .body:empty { display:none; }
