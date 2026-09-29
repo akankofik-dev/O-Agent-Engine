@@ -8646,15 +8646,26 @@ function paintAutomation() {
 
   const note = $("auNote");
   if (note) {
+    /* A switch held for an engine this server does not have. state.js keeps
+       these on purpose — an engine someone deliberately turned off should still
+       be off if it comes back — so without a line here they are state nobody can
+       see. It leads, because it is the one fact on this panel that the reader
+       cannot get anywhere else. */
+    const orphans = Array.isArray(v.orphans) ? v.orphans : [];
+    const orphanLine = orphans.length
+      ? orphans.length + " saved switch" + (orphans.length === 1 ? "" : "es")
+        + " for an engine this server does not have (" + orphans.join(", ")
+        + ") — it stays off if that engine comes back. "
+      : "";
     if (v.unchecked) {
       // nothing has been looked for yet, so say that instead of guessing
-      note.textContent = v.unchecked + " engine" + (v.unchecked === 1 ? " has" : "s have")
+      note.textContent = orphanLine + v.unchecked + " engine" + (v.unchecked === 1 ? " has" : "s have")
         + " not been checked yet. Use “Check again” to look for "
         + (v.unchecked === 1 ? "it" : "them") + ".";
     } else if (v.extrasAvailable) {
-      note.textContent = "Auto picks the precise engine for selectors, a semantic one for “click the checkout button”, and the autonomous one for a whole task.";
+      note.textContent = orphanLine + "Auto picks the precise engine for selectors, a semantic one for “click the checkout button”, and the autonomous one for a whole task.";
     } else {
-      note.textContent = "Only the built-in engine is available, so Auto is using it for everything. The others appear here as soon as they are really available.";
+      note.textContent = orphanLine + "Only the built-in engine is available, so Auto is using it for everything. The others appear here as soon as they are really available.";
     }
   }
 

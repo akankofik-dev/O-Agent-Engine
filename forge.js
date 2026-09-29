@@ -135,7 +135,17 @@ function survey() {
        rather than as supported. */
     capabilities: Array.from(have).sort(),
     routerVocabulary: Object.keys(require('./ai/automation')).includes('classify') ? true : false,
-    known: state.KNOWN.slice(),
+    /* Which engine ids a preference may name.
+     *
+     * This used to be `state.KNOWN.slice()` — the four shipped ids — which told
+     * an agent reading the survey that only those four existed, and made
+     * setEnabled() agree. The list now is everything this survey found on disk:
+     * the four built in plus every engine that registered. An agent that
+     * switches off something it built should not be told it named nothing. */
+    known: built.concat(generated).map(e => e.id),
+    /* kept because it is a different question, and it is a real one: which ids
+       get a default entry in a fresh preference file */
+    shipped: state.KNOWN.slice(),
     enginesDir: ENGINES_DIR,
   };
 }
@@ -642,12 +652,17 @@ function installIntoRegistry(router, mod, verdict) {
  * here is chosen by the same rank() that chooses native-cdp, recovers through
  * the same recover(), and is described by the same describe().
  *
- * The two lists that are NOT touched are why this is safe at runtime.
- * `ai/automation/state.js` KNOWN decides which engine ids a *user preference*
- * may name, and an id missing from it is not disabled — describe() treats an
- * absent entry as enabled. So a generated engine routes without ever editing
- * the file that holds the four shipped ids, and the day someone adds it there
- * it starts behaving like any other preference.
+ * A generated engine is a full member from the moment it is registered. It is
+ * chosen by the same rank() that chooses native-cdp, recovers through the same
+ * recover(), is described by the same describe(), obeys the same enabled switch,
+ * and can be pinned by hand with the same setEngine().
+ *
+ * This paragraph used to claim the opposite. It said KNOWN "decides which
+ * engine ids a user preference may name" and called a generated engine's
+ * exemption from that list a feature. It was not a feature: the panel drew a
+ * switch for the engine, the switch was refused with "unknown engine", and
+ * nothing tested it. KNOWN now seeds the four shipped defaults and nothing else
+ * decides anything — the registry is what says which engines exist.
  *
  * @param {object} router  what createRouter() returned
  * @param {string} id      the engine's directory name

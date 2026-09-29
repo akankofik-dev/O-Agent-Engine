@@ -1899,7 +1899,7 @@ async function handleApi(req, res, url) {
   if (pathname === '/api/health') {
     return sendJson(res, 200, {
       ok: true,
-      service: 'octop-browser-automation',
+      service: 'o-agent',
       uptime: process.uptime(),
       browser: {
         connected: STATE.connected,
@@ -1914,7 +1914,7 @@ async function handleApi(req, res, url) {
     const ready = STATE.connected && !!activeSession();
     return sendJson(res, ready ? 200 : 503, {
       ok: ready,
-      service: 'octop-browser-automation',
+      service: 'o-agent',
       browserConnected: STATE.connected,
       activeTab: !!activeSession(),
     });
@@ -2115,11 +2115,47 @@ async function handleApi(req, res, url) {
     try { body = JSON.parse(await readBody(req) || '{}'); }
     catch (e) { return sendJson(res, 400, { ok: false, error: 'bad json: ' + e.message }); }
     if (body.engine) {
-      const r = aiAutomation.state.setEngine(String(body.engine));
+      const want = String(body.engine);
+      /* "auto" is always a legal answer; any other id has to be an engine this
+         process actually holds. Refusing an unknown pin here is deliberate — the
+         router's own contract is that a hand-picked engine is never quietly
+         replaced, so a pin that names nothing has to fail rather than be stored
+         and ignored. */
+      if (want !== aiAutomation.state.AUTO && !automation.BY_ID.has(want)) {
+        return sendJson(res, 404, {
+          ok: false,
+          error: 'this server has no engine called "' + want + '"',
+          have: ['auto'].concat(automation.ENGINES.map(e => e.id)),
+        });
+      }
+      const r = aiAutomation.state.setEngine(want);
       if (!r.ok) return sendJson(res, 400, { ok: false, error: r.error });
     }
     if (body.id) {
-      const r = aiAutomation.state.setEnabled(String(body.id), body.enabled === true);
+      const id = String(body.id);
+      /* The registry is the fact, so the registry answers. This used to be left
+         to state.js, which decided from a list of four ids baked in at the top
+         of the file — so an engine the agent had built was "unknown", the
+         dashboard's switch was drawn anyway, and pressing it produced an error
+         instead of a change. Asking BY_ID means the answer is true at this
+         moment, including about an engine registered five minutes ago.
+         `have` is sent so a failure names the alternatives rather than just
+         refusing. */
+      if (!automation.BY_ID.has(id)) {
+        return sendJson(res, 404, {
+          ok: false,
+          error: 'this server has no engine called "' + id + '"',
+          have: automation.ENGINES.map(e => e.id),
+        });
+      }
+      /* `body.enabled === true` was the previous reading, which turns any payload
+         that is not exactly true into "off" — including one that forgot the
+         field. A missing or wrong-typed switch is a mistake to report, not a
+         decision to carry out. */
+      if (typeof body.enabled !== 'boolean') {
+        return sendJson(res, 400, { ok: false, error: 'enabled must be true or false' });
+      }
+      const r = aiAutomation.state.setEnabled(id, body.enabled);
       if (!r.ok) return sendJson(res, 400, { ok: false, error: r.error });
     }
     // Turning an engine on or off is a change of intent, not a change of
@@ -3738,7 +3774,7 @@ server.on('upgrade', (req, socket) => {
     }
   };
 
-  conn.send({ type: 'hello', version: STATE.version, server: 'octop-browser-automation' });
+  conn.send({ type: 'hello', version: STATE.version, server: 'o-agent' });
   conn.send({ type: 'status', status: statusObject() });
   conn.send({ type: 'tabs', tabs: tabList() });
   if (STATE.lastFrame) {

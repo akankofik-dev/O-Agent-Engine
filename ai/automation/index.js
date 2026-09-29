@@ -236,9 +236,30 @@ function createRouter({ driver, context, resolveProvider, engines }) {
     healthCheckedAt = 0;
   }
 
-  /** enabled, available, not cooling down, and actually able */
+  /**
+   * Enabled, available, not cooling down, and actually able.
+   *
+   * The comment on this function has always said "enabled" and the body never
+   * checked it. Every other consumer of the preference did — describe() for the
+   * panel, explain() for the refusal message, `unchecked` for the count — so the
+   * switch looked like it worked, said "turned off" when it was off, and the
+   * engine carried on carrying every action. A switch that changes the label and
+   * not the behaviour is worse than one that is missing, because it is believed.
+   *
+   * The read is a property access on the config state.js already holds in
+   * memory, and an id with no entry counts as on: a missing preference is not a
+   * decision, which is the same rule describe() and explain() already use. One
+   * helper, so the three of them cannot disagree.
+   */
+  function userEnabled(id) {
+    const cfg = state.load();
+    const e = cfg.engines[id];
+    return e ? e.enabled !== false : true;
+  }
+
   function usable(h, caps) {
     if (!h || h.available !== true) return false;
+    if (!userEnabled(h.id)) return false;
     if (h.cooldownUntil && Date.now() < h.cooldownUntil) return false;
     const have = new Set(h.capabilities || []);
     return caps.every(c => have.has(c));
@@ -515,7 +536,9 @@ function packageOnDisk(pkg) {
       mode: cfg.engine === state.AUTO ? 'auto' : 'manual',
       engines: ENGINES.map(e => {
         const h = health.get(e.id);
-        const enabled = cfg.engines[e.id] ? cfg.engines[e.id].enabled !== false : true;
+        /* the one reader of the preference, so the panel and the router cannot
+           end up telling different stories about the same switch */
+        const enabled = userEnabled(e.id);
         /* null means nobody has looked yet, which is not the same as broken */
         const known = h.available !== null;
         return {
@@ -545,18 +568,37 @@ function packageOnDisk(pkg) {
       /** is there anything to route to beyond the built-in engine? */
       extrasAvailable: ENGINES.filter(e => !e.builtIn).some(e => health.get(e.id).available === true),
       /** how many are still unchecked, so the UI can stop guessing about them */
-      unchecked: ENGINES.filter(e => health.get(e.id).available === null
-        && (cfg.engines[e.id] ? cfg.engines[e.id].enabled !== false : true)).length,
+      unchecked: ENGINES.filter(e => health.get(e.id).available === null && userEnabled(e.id)).length,
+      /**
+       * Switches held for engines this registry does not have: a folder that was
+       * renamed or removed, or a build that has not been registered yet.
+       *
+       * state.js keeps these on purpose — an engine someone deliberately turned
+       * off should still be off if it comes back — so something has to say they
+       * are sitting there. A preference nothing reports is the same invisible
+       * state as a registry entry whose folder is gone, and both of those were
+       * true in this product at the same time.
+       */
+      orphans: Object.keys(cfg.engines).filter(id => !BY_ID.has(id)),
     };
   }
 
   /** why nothing could take it, in words a person can act on */
   function explain(caps) {
-    const cfg = state.load();
-    const on = ENGINES.filter(e => !cfg.engines[e.id] || cfg.engines[e.id].enabled !== false);
+    const off = ENGINES.filter(e => !userEnabled(e.id));
+    const on = ENGINES.filter(e => userEnabled(e.id));
     if (!on.length) return 'every automation engine is turned off';
     const available = on.filter(e => health.get(e.id).available === true);
     if (!available.length) {
+      /* An engine that is switched off is the most ordinary reason there is
+         nothing to route to, and the least obvious one from a message that says
+         "unavailable" — the machine is fine, the person chose this. So it is
+         named. The message a refused action carries should say which of the two
+         happened, and this is the case that used not to. */
+      const parked = off.filter(e => health.get(e.id).available === true);
+      if (parked.length) {
+        return 'every engine that can run here is turned off — ' + parked.map(e => e.name).join(', ');
+      }
       const first = on[0];
       return 'no automation engine can run here — ' + first.name + ': ' + (health.get(first.id).reason || 'unavailable');
     }

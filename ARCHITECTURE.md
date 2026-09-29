@@ -165,20 +165,52 @@ id, name, type, builtIn, capabilities[], available(), execute(), observe(), reco
 berantai, cooldown 45 detik setelah 2 kegagalan gagal lebih sering
 (`COOLDOWN_AFTER=2`, `COOLDOWN_MS=45000`), health map, dan `describe()` untuk UI.
 
-**3. Yang mengunci registry engine: dua daftar hardcoded.**
+**3. Yang mengunci registry engine: satu daftar hardcoded — sudah dibongkar.**
 
 ```
 ai/automation/index.js:38   DEFAULT_ENGINES = [ 4 require() statis ]
 ai/automation/state.js:26   KNOWN = [ 'native-cdp', 'playwright-mcp', 'stagehand', 'browser-use' ]
 ```
 
-`createRouter()` dipanggil di `server.js:2308` **tanpa** argumen `engines`, jadi
-selalu jatuh ke `DEFAULT_ENGINES` (`:125`). Dan `state.js:normalise()` **diam-diam
-membuang** id yang tidak ada di `KNOWN` — bukan error, hilang tanpa pesan.
+`createRouter()` dipanggil di `server.js` **tanpa** argumen `engines`, jadi
+selalu jatuh ke `DEFAULT_ENGINES` (`:125`). Dan `state.js` **diam-diam membuang**
+id yang tidak ada di `KNOWN` — bukan error, hilang tanpa pesan.
 
 Kondisi hidup saat ini (diukur via `/api/automation/engines`): `native-cdp`
 available; `playwright-mcp` **dimatikan**; `stagehand` + `browser-use` "not checked
 yet". Jadi router praktis cuma punya **satu** engine yang bisa dipakai.
+
+**Kabar baiknya, danabar buruknya.** `DEFAULT_ENGINES` memang daftar, tapi itu
+memang benar — itu definisi engine bawaan, bukan penolakan. Yang salah adalah
+`KNOWN`, dan sekarang sudah dibongkar:
+
+```
+setEnabled('echo-engine', false)  ->  { ok:false, error:'unknown engine: echo-engine' }
+```
+
+Dashboard sudah menggambar switch untuk **semua** engine, jadi panelnya
+menjan-db switch yang server tolak. Dan tidak ada satu pun test yang menyentuhnya
+selama empat milestone.
+
+Dua lapis yang salah, dan sekarang dipisah:
+
+| Lapis | Menjawab | Sumber |
+|---|---|---|
+| `state.js` `ID_RE` | "ini **bisa** jadi id engine?" | bentuk, bukan daftar |
+| `server.js` `BY_ID.has()` | "engine ini **ada**?" | registry yang hidup |
+| `index.js` `userEnabled()` | "user **aktifkan**?" | satu pembaca, dipakai router + panel |
+
+`normalise()` sekarang menyimpan setiap entri yang id-nya bisa jadi id, dan
+`describe().orphans` melaporkan sisa yang tidak punya engine — supaya switch yang
+disimpan untuk engine yang dihapus terlihat, bukan diam-diam hilang.
+
+Dan yang lebih penting, ditemukan bareng: **`usable()` tidak pernah membaca
+`enabled` sama sekali.** Komentarnya sudah tulis "enabled, available, not cooling
+down" sejak dulu, tapi body-nya cuma cek `available`, cooldown, dan capability.
+Jadi switch-nya bekerja ke arah yang salah — kalau succeeds, panel berubah;
+behavior-nya tidak. `discover.test.js` dan `evolve.test.js` yang menguji
+"engine yang dimatikan" menguji `health.available`, bukan preference, jadi keduanya
+tetap hijau selama bug ini hidup.
 
 ---
 
