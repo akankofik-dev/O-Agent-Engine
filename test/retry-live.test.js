@@ -24,6 +24,16 @@ const CFG_PATH = path.join(__dirname, '..', 'data', 'agent-config.json');
    is a different and more worrying thing. */
 const skip = why => { console.log('\n  retry-live: skipped — ' + why + ' (0 passed, 0 failed)'); process.exit(0); };
 
+/* /api/agent/run is behind the access token now, so this suite has to present
+ * one. Read from the file the running server wrote, the same way any other
+ * client would. */
+const TOKEN = (() => {
+  try { return fs.readFileSync(path.join(__dirname, '..', 'data', 'access-token'), 'utf8').trim(); }
+  catch { return ''; }
+})();
+if (!TOKEN) skip('the running server has issued no data/access-token — is it the old build?');
+const auth = { 'X-Octop-Token': TOKEN };
+
 let pass = 0; const fails = [];
 const check = (name, fn) => { try { fn(); pass++; console.log('  ok    ' + name); } catch (e) { fails.push(name); console.log('  FAIL  ' + name + '\n        ' + e.message); } };
 
@@ -60,7 +70,7 @@ function runTurn(text) {
     const payload = JSON.stringify({ text, runId: 'probe_' + Date.now().toString(36) });
     const req = http.request(APP + '/api/agent/run', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) },
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload), ...auth },
     }, res => {
       if (res.statusCode !== 200) { res.resume(); return reject(new Error('run route said ' + res.statusCode)); }
       let buf = '';
@@ -84,7 +94,7 @@ function runTurn(text) {
 
 const json = (p, method, body) => new Promise((resolve, reject) => {
   const payload = body === undefined ? '' : JSON.stringify(body);
-  const headers = { 'content-type': 'application/json' };
+  const headers = { 'content-type': 'application/json', ...auth };
   if (payload) headers['content-length'] = Buffer.byteLength(payload);
   const req = http.request(APP + p, { method, headers }, res => {
     let out = ''; res.on('data', d => { out += d; });

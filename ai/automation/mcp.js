@@ -25,6 +25,37 @@ const CALL_TIMEOUT_MS = 120000;
  * @param {object} [o.env]       extra environment for the child only
  * @param {string} [o.cwd]
  */
+/**
+ * Quote one argument for a Windows command line.
+ *
+ * Needed because of what `shell: true` does to the argument array, which is not
+ * what the old comment here claimed. With a shell, Node joins [command, ...args]
+ * with spaces into a single string and hands it to cmd.exe. Nothing in that
+ * array is quoted on the way. Measured on this machine, node v24:
+ *
+ *     args  : ['a b', 'c&d', 'e|f']
+ *     arrives as : ['a', 'b', 'c']
+ *
+ * A space becomes two arguments and the rest is discarded, and & | > < ; would
+ * each be read as a command separator. So the old note — "nothing here is
+ * word-split or re-interpreted on the way in" — described the opposite of what
+ * happens, and Node says as much in DEP0190 on every start.
+ *
+ * What this does fix: spaces, & | < > ; and embedded quotes all survive.
+ *
+ * What it does not, and what no amount of quoting here can fix, because it
+ * happens in cmd.exe before the child program ever runs:
+ *   - `^` is cmd's own escape character and is consumed. `m^n` still arrives
+ *     as `mn`.
+ *   - `%NAME%` is still expanded by cmd.
+ * Both are stated rather than hidden. An argument the caller needs to survive
+ * those two cannot be passed to a .cmd on Windows at all, and pretending
+ * otherwise would be the same mistake the old comment made.
+ */
+function quoteForShell(arg) {
+  return '"' + String(arg).replace(/"/g, '\\"') + '"';
+}
+
 function createClient({ command, args = [], env = {}, cwd }) {
   let child = null;
   let nextId = 1;
@@ -45,19 +76,20 @@ function createClient({ command, args = [], env = {}, cwd }) {
     ready = new Promise((resolve, reject) => {
       let child_;
       try {
-        child_ = spawn(command, args, {
+        child_ = spawn(command, args.map(quoteForShell), {
           cwd: cwd || undefined,
           env: Object.assign({}, process.env, env),
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
-          /* On Windows `npx` is npx.cmd, and spawn() does not resolve a bare
-             name to a .cmd — it reports ENOENT, so the engine looks permanently
-             unavailable on a machine where npx is installed and working. That
-             is the difference between an optional engine that works and one
-             that never does, and it is invisible on every platform but this
-             one. The argument array is handed to the shell as a quoted
-             sequence, so nothing here is word-split or re-interpreted on the
-             way in. */
+          /* The shell is not optional on Windows and cannot be worked around:
+             npx ships only as npx.cmd, and spawn() refuses to run a .cmd
+             without one — measured here, node v24, `shell: false` gives EINVAL
+             and `shell: true` gives exit 0. Without the shell this engine
+             looks permanently unavailable on a machine where npx works, which
+             is invisible on every other platform.
+             The price of the shell is that the argument array is concatenated
+             rather than passed, so it is quoted first — see quoteForShell()
+             above for what that does and does not fix. */
           shell: process.platform === 'win32',
         });
       } catch (e) {

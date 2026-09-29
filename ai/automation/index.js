@@ -34,13 +34,17 @@ const state = require('./state');
 const { hasContext, noContextError } = require('./context');
 
 /* the four engines the product ships with, in fallback order: the built-in one
-   is the floor, because it is always there and always shares the context */
-const DEFAULT_ENGINES = [
+   is the floor, because it is always there and always shares the context.
+   Frozen because it is a definition rather than a working list: createRouter()
+   copies it, and anything that wants to add an engine adds it to a router. A
+   mutation landing here would land on every router at once, so the array
+   refuses to accept one. */
+const DEFAULT_ENGINES = Object.freeze([
   require('./engines/native'),
   require('./engines/playwright-mcp'),
   require('./engines/stagehand'),
   require('./engines/browser-use'),
-];
+]);
 
 /* after this many more failures than successes an engine is stepped over for a
    while, so a broken engine is not retried on every single action */
@@ -122,7 +126,22 @@ function createRouter({ driver, context, resolveProvider, engines }) {
   if (!driver || typeof driver.action !== 'function') throw new Error('the router needs the existing browser driver');
   if (typeof context !== 'function') throw new Error('the router needs the BrowserContext reader');
 
-  const ENGINES = engines && engines.length ? engines : DEFAULT_ENGINES;
+  /* An own copy, always — and this is not tidiness.
+   *
+   * The line used to be `engines && engines.length ? engines : DEFAULT_ENGINES`,
+   * which meant that a router built with no `engines` argument did not get a
+   * registry: it got the module-level DEFAULT_ENGINES array itself. So the day
+   * something registers an engine at runtime it is pushing into the shared list,
+   * and every router built after it in the same process starts with an engine
+   * nobody asked for. Registering into one router would edit the default for all
+   * of them, which is exactly the kind of aliasing that is invisible until it is
+   * a bug two features later.
+   *
+   * `slice()` gives each router its own list. The shipped engines are the same
+   * objects — that is the point, they are the four adapters — but the list is
+   * per-router, so adding to one adds to one.
+   */
+  const ENGINES = (engines && engines.length ? engines : DEFAULT_ENGINES).slice();
   const BY_ID = new Map(ENGINES.map(e => [e.id, e]));
   const health = freshHealth(ENGINES);
   // when health was last established; 0 means never, which is always stale

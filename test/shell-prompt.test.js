@@ -16,9 +16,26 @@
 const assert = require('assert');
 const http = require('http');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = '127.0.0.1';
+
+/* The shell socket now needs a credential as well as the right Origin, so this
+ * suite has to identify itself the way a real client would: read the token the
+ * running server issued. The alternative — asking the server to skip the check
+ * when it looks like a test — would be a switch that disables the boundary,
+ * and a switch like that is exactly what a later change would leave switched
+ * off in production. */
+const TOKEN = (() => {
+  try { return fs.readFileSync(path.join(__dirname, '..', 'data', 'access-token'), 'utf8').trim(); }
+  catch { return ''; }
+})();
+if (!TOKEN) {
+  console.error('\n  no data/access-token — is the server running with the new code?');
+  process.exit(1);
+}
 
 let passed = 0;
 const failures = [];
@@ -43,6 +60,7 @@ function connect(url) {
         Connection: 'Upgrade', Upgrade: 'websocket',
         'Sec-WebSocket-Key': key, 'Sec-WebSocket-Version': '13',
         Origin: 'http://' + u.host,
+        'X-Octop-Token': TOKEN,
       },
     });
     req.on('upgrade', (res, socket) => {

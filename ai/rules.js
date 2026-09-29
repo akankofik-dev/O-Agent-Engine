@@ -101,7 +101,12 @@ const SEED_SKILLS = [
   },
 ];
 
-const CAP_KEYS = ['browser', 'screenshot', 'dom', 'javascript', 'terminal', 'rules'];
+/* Mirrors TOOL_KEYS in ai/store.js. `engines` is the key that decides whether a
+ * profile may write and run an automation engine; it is separate from
+ * `terminal` on purpose, because a shell and a sandboxed build folder are not
+ * the same permission and sharing one switch would make the Settings screen
+ * tell the truth about neither. */
+const CAP_KEYS = ['browser', 'screenshot', 'dom', 'javascript', 'terminal', 'rules', 'engines'];
 
 /* ── what an agent is allowed to propose ──────────────────────────────────
  *

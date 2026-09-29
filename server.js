@@ -38,8 +38,15 @@ const agentFiles = require('./ai/agentfiles');
 const aiCompat = require('./ai/compat');
 const aiAttachments = require('./ai/attachments');
 const aiAutomation = require('./ai/automation');
+const forge = require('./forge');
 const browserSession = require('./ai/browser/session');
 const agentRuns = require('./ai/runs').createRunRegistry();
+
+/* The access boundary. `access` issues and checks the one credential this
+   server has; `policy` decides whether a profile's allowlist and blocklist are
+   obeyed on every route the browser can leave by. */
+const access = require('./access');
+const policy = require('./policy');
 
 /* ----------------------------- config --------------------------------- */
 
@@ -58,6 +65,36 @@ const QUALITY = clamp(Number(process.env.QUALITY || 78), 20, 100);
 const MAX_FRAME_W = Number(process.env.MAX_W || 1600);
 const MAX_FRAME_H = Number(process.env.MAX_H || 1000);
 const IS_WINDOWS = process.platform === 'win32';
+
+/* --------------------------- the access token -------------------------- *
+ * Issued once in main(), before the listener opens, and held for the life of
+ * the process. Nothing outside this file needs to know what it is: the page is
+ * handed a cookie, a hand-written client reads data/access-token, and every
+ * check goes through `authorised()`.
+ * ------------------------------------------------------------------------ */
+
+let ACCESS_TOKEN = '';
+
+/* routes that answer without a credential, because something outside this
+   process needs them to work before anyone can be handed one: a service check,
+   a readiness probe. They report that the server is up. They report nothing
+   about what the server can do. */
+const OPEN_ROUTES = new Set(['/api/health', '/api/ready']);
+
+/**
+ * The credential a request offered, from a cookie, a bearer header, the
+ * `X-Octop-Token` header, or — for a WebSocket built by something that cannot
+ * set a header — the query string.
+ */
+function credentialOf(req, url) {
+  const q = url && url.query ? new URL(url.query, 'http://x').searchParams.get('t') : null;
+  return access.presented(req, q);
+}
+
+function authorised(req, url) {
+  if (!ACCESS_TOKEN) return false;
+  return access.matches(credentialOf(req, url), ACCESS_TOKEN);
+}
 
 /* The shell, chosen for what it can actually run.
  *
@@ -784,6 +821,55 @@ function activeSession(tabId) {
 /** true when this is the target the agent is driving and the preview may show */
 function isActiveTarget(tid) {
   return BROWSER.isAgentTarget(tid);
+}
+
+/**
+ * Where a tab is right now, read live from the page rather than from the
+ * session's cache.
+ *
+ * The cache is updated by CDP events, which is exactly the wrong thing to ask
+ * when the question is "where did this action just put us": a navigation
+ * commits and then the event arrives, so for a moment after a click the cached
+ * URL is the one we left. The whole point of the post-check is to look after
+ * the fact, so it has to read the fact rather than the last notification of it.
+ *
+ * Returns null when it cannot be read — a closed tab, a page mid-navigation,
+ * a document that is not scriptable. Null is not "safe", it is "unknown", and
+ * the caller decides which of the two it can live with.
+ */
+async function currentUrlOf(tabId) {
+  const sess = activeSession(tabId);
+  if (!sess) return null;
+  try {
+    const u = await evalValue(sess.sessionId, 'location.href');
+    return typeof u === 'string' && u ? u : null;
+  } catch { return null; }
+}
+
+/**
+ * Where `back` or `forward` would land, read before it happens.
+ *
+ * `Page.getNavigationHistory` is the only place the answer exists before the
+ * move; afterwards the fact is gone and the tab has already been somewhere the
+ * policy said it should not. An entry's place in the array is its index — the
+ * entries carry no index of their own, which is the detail that makes this easy
+ * to get subtly wrong — and forward is one past the current index while back is
+ * one before it.
+ *
+ * null means there is nowhere to go, or the history could not be read. Both are
+ * left to doActionOn to report, which already says "no history entry" for the
+ * first and throws for the second; this does not second-guess it.
+ */
+async function historyDestination(tabId, act) {
+  const sess = activeSession(tabId);
+  if (!sess) return null;
+  try {
+    const h = await send('Page.getNavigationHistory', {}, sess.sessionId);
+    const entries = (h && h.entries) || [];
+    const at = (h ? h.currentIndex : 0) + (act === 'forward' ? 1 : -1);
+    const entry = entries[at];
+    return entry && entry.url ? entry.url : null;
+  } catch { return null; }
 }
 
 /* -------------------------------------------------------------------------
@@ -1739,14 +1825,27 @@ function originAllowed(req) {
   return origin === `http://${req.headers.host}`;
 }
 
-function sendJson(res, code, obj) {
+function sendJson(res, code, obj, origin = res.octopOrigin) {
   const body = JSON.stringify(obj);
-  res.writeHead(code, {
+  const h = {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(body),
     'cache-control': 'no-store',
-    'access-control-allow-origin': '*',
-  });
+  };
+  /* Echo the caller's own origin instead of `*`.
+   *
+   * `*` was never needed — the dashboard is same-origin and sends no Origin on
+   * a same-origin fetch at all, so there was no preflight to satisfy. What it
+   * bought was the ability for any page on the machine to read this API's
+   * responses, and now that those responses are behind a token that a page
+   * cannot read, that arrangement has nothing left to protect. Echoing keeps
+   * the working case and drops the rest.
+   *
+   * The origin is passed in rather than derived here so this function does not
+   * need the request, and so a value that never went through originAllowed()
+   * cannot be reflected back. */
+  if (origin) h['access-control-allow-origin'] = origin;
+  res.writeHead(code, h);
   res.end(body);
 }
 
@@ -1766,8 +1865,35 @@ function readBody(req, limit = 8 * 1024 * 1024) {
   });
 }
 
-async function handleApi(req, res, pathname) {
+async function handleApi(req, res, url) {
+  const pathname = url.pathname;
   if (!originAllowed(req)) return sendJson(res, 403, { error: 'origin not allowed' });
+
+  /* Remembered for sendJson, so every answer echoes this caller's own origin
+     instead of a wildcard. Reached only because originAllowed() said yes, and
+     a request with no Origin at all gets none back — which is the common case
+     for the dashboard, since a same-origin fetch sends no Origin. */
+  res.octopOrigin = req.headers.origin || null;
+
+  /* Who are you, and only then what do you want.
+   *
+   * The order matters as much as the check. Every /api route used to answer a
+   * caller it had never identified, and one of them — /api/agent/run — answered
+   * with a sentence about the configuration ("no agent profile yet"), which is
+   * both a disclosure and a promise that the same call will do something real
+   * once a profile exists. Gating here means an unidentified caller now gets
+   * 401 before any route-specific code runs, so no route can leak its own
+   * preconditions by accident.
+   *
+   * Origin is still checked, and is still on its own line above, because the two
+   * answer different questions. A token can be copied out of this user's browser
+   * or read from data/access-token by another process on the machine — neither
+   * is what Origin is for. Origin stops the web page case, and it is the one
+   * threat a token alone does not cover.
+   */
+  if (!OPEN_ROUTES.has(pathname) && !authorised(req, url)) {
+    return sendJson(res, 401, { error: 'unauthorised' });
+  }
 
   if (pathname === '/api/health') {
     return sendJson(res, 200, {
@@ -2312,6 +2438,16 @@ const automation = aiAutomation.createRouter({
   },
   context: () => browserContext(),
 });
+/* create_engine is added here rather than written into ai/tools.js so that the
+ * tool list keeps one owner: the permission. installTool() only records the
+ * router and does no work — it runs no test, opens nothing, and gives no
+ * profile the tool on its own. A profile sees it if and only if it has the
+ * `engines` permission, exactly like shell_exec waits for `terminal`. */
+try {
+  forge.installTool(automation);
+} catch (e) {
+  logErr('could not install create_engine:', e.message);
+}
 
 function automationEndpoints(profile) {
   return { endpoints: cdpEndpoint ? { cdpWs: cdpEndpoint } : {}, profile, resolveProvider: id => aiStore.getProvider(id) };
@@ -2524,32 +2660,96 @@ function engineJob(id, mode) {
 }
 
 function agentController(profile, emit) {
-  const policy = aiStore.normBrowser(profile && profile.browser);
-  const guardUrl = (url) => {
-    const v = aiStore.browserAllows(policy, url);
-    if (!v.ok) throw new Error(v.reason);
-    return v;
-  };
+  const guard = policy.makeGuard(profile && profile.browser);
+
+  const refuse = (v) => { throw new Error(v.reason); };
+
   return {
     browser: {
       /**
        * The same call the agent always made. It now passes through the
        * automation router first, which decides which engine carries it out and
-       * reports the step on the run's own event stream. The browser policy is
-       * still checked here, before any engine sees the request.
+       * reports the step on the run's own event stream.
+       *
+       * The policy is checked on both sides of the action, and the second side
+       * is the one that used to be missing.
+       *
+       * Before: only `navigate` was checked, and only against the URL in the
+       * request. `back` and `forward` moved to whatever was in history, `click`
+       * followed whatever link was under the pointer, `press` could send Enter
+       * to a focused link, and `browser_js` could set location.href outright.
+       * A profile's allowlist described a door with two hinges and no wall —
+       * confirmed by reading the call sites, of which there were two.
+       *
+       * After: the destination is checked before the move when it is known, and
+       * after the move when it was not. The second is not a replacement, it is
+       * the part that catches what the first structurally cannot — there is no
+       * way to know where a click lands before the page has said so.
+       *
+       * The "before" read is skipped entirely when the profile has no policy.
+       * That is not an optimisation to be careful about, it is the difference
+       * between a feature a default install never pays for and a per-click
+       * round trip on every machine that has never configured a list.
        */
       action: async (body) => {
-        if (body && body.action === 'navigate' && body.url) guardUrl(body.url);
+        const act = String((body && body.action) || '');
+        const tabId = (body && body.tabId) || null;
+
+        // where it is now, so the post-check can tell a move from a no-op
+        const from = guard.active && guard.covers(act) ? await currentUrlOf(tabId) : null;
+
+        /* `back` and `forward` name a position in history rather than a URL, so
+         * the destination has to be read out of the history before the move.
+         * Without this the only check they ever got was after the fact, which
+         * means `back` was a way to reach any URL this tab had ever been on
+         * regardless of the allowlist — the page was already gone by the time
+         * anyone objected. */
+        let early = null;
+        if (guard.active && (act === 'back' || act === 'forward')) {
+          const dest = await historyDestination(tabId, act);
+          if (dest) early = guard.before(act, dest);
+        }
+        if (!early) early = guard.before(act, body && body.url);
+        if (early) refuse(early);
+
         const out = await automation.route(body || {}, {
           emit: typeof emit === 'function' ? emit : () => {},
           ...automationEndpoints(profile),
         });
         if (out && out.ok === false) throw new Error(out.error);
+
+        if (from !== null) {
+          const to = await currentUrlOf(tabId);
+          const late = guard.after(act, from, to);
+          /* The move already happened, so the error is reported rather than
+             prevented — and the tab is put back where it was, because leaving
+             it on the page the policy just refused is the worst of both. A page
+             that cannot be navigated away from (a download, a beforeunload) is
+             reported as a failure with the tab left where it got to, which is
+             at least honest. */
+          if (late) {
+            if (from && to && to !== from) {
+              try { await automation.route({ action: 'navigate', tabId, url: from }, { emit: () => {}, ...automationEndpoints(profile) }); }
+              catch { /* the refusal is the result; the restore is best effort */ }
+            }
+            refuse(late);
+          }
+        }
+
         // the unwrapped result, exactly as the tools have always received it
         return out && Object.prototype.hasOwnProperty.call(out, 'result') ? out.result : out;
       },
+      /**
+       * `tabs new` is not a doActionOn branch, so the scan in
+       * test/security-urlpolicy.test.js cannot see it and the guard has to be
+       * applied here or a new tab is an unpoliced way out. It is a `before`
+       * check only, which is exact: the URL is in the request.
+       */
       tabs: (a) => {
-        if (a && a.action === 'new' && a.url) guardUrl(a.url);
+        if (a && a.action === 'new' && a.url) {
+          const v = guard.check(a.url);
+          if (v) refuse(v);
+        }
         return doTabs(a);
       },
       /**
@@ -2922,7 +3122,11 @@ function serveStatic(req, res, pathname) {
   if (file !== ROOT && !file.startsWith(ROOT + path.sep)) { res.writeHead(403); return res.end('forbidden'); }
   // never serve the config file (it holds API keys) or the server modules
   const inside = (name) => file.startsWith(path.join(ROOT, name) + path.sep);
-  if (inside('data') || inside('ai') || file === aiStore.FILE) {
+  /* data/ is already refused wholesale, which covers the token. It is named
+     here as well so that if that rule is ever narrowed to specific files, the
+     one file that is a live credential cannot be the casualty of the narrowing. */
+  if (inside('data') || inside('ai') || file === aiStore.FILE
+      || path.basename(file) === access.BLOCKED) {
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
     return res.end('404');
   }
@@ -2932,17 +3136,33 @@ function serveStatic(req, res, pathname) {
       return res.end('404 — dashboard not found');
     }
     const ext = path.extname(file).toLowerCase();
-    res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': 'no-cache' });
+    const h = { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': 'no-cache' };
+    /* The dashboard is handed the credential, and it is the only page that is.
+     *
+     * Set on every document response, not once at login, because there is no
+     * login: this is the server saying "you are talking to me" at the moment the
+     * page is delivered. The page does not read it, cannot read it (HttpOnly),
+     * and does not need to — the browser attaches it to everything afterwards,
+     * including the two WebSocket handshakes, which is why dashboard.html is not
+     * modified by any of this.
+     *
+     * Sending the same value again on a reload is harmless and is what makes a
+     * stale tab recover on its own after the server restarts. */
+    if (file === DASHBOARD && ACCESS_TOKEN) h['set-cookie'] = access.cookieHeader(ACCESS_TOKEN);
+    res.writeHead(200, h);
     fs.createReadStream(file).pipe(res);
   });
 }
 
 const server = http.createServer((req, res) => {
+  let url;
+  try { url = new URL(req.url, `http://${req.headers.host}`); }
+  catch { res.writeHead(400); return res.end('bad url'); }
   let pathname;
-  try { pathname = decodeURIComponent(new URL(req.url, `http://${req.headers.host}`).pathname); }
+  try { pathname = decodeURIComponent(url.pathname); }
   catch { res.writeHead(400); return res.end('bad url'); }
 
-  if (pathname.startsWith('/api/')) return void handleApi(req, res, pathname).catch(e => sendJson(res, 500, { error: e.message }));
+  if (pathname.startsWith('/api/')) return void handleApi(req, res, url).catch(e => sendJson(res, 500, { error: e.message }));
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
   serveStatic(req, res, pathname);
 });
@@ -3372,12 +3592,57 @@ class ShellSession {
   }
 }
 
+/**
+ * Turn a socket down in a way the client can read.
+ *
+ * A plain `socket.destroy()` is what this used to do, and from the other side
+ * it is indistinguishable from the server dying mid-handshake. Answering with a
+ * status line is the difference between "you are not allowed" and "something
+ * went wrong", and it means a refused socket can be told apart from a broken
+ * one by nothing more than a log line.
+ */
+function refuseUpgrade(socket, code, message) {
+  const body = JSON.stringify({ error: message });
+  try {
+    socket.write(
+      `HTTP/1.1 ${code} ${code === 401 ? 'Unauthorized' : 'Forbidden'}\r\n` +
+      'content-type: application/json; charset=utf-8\r\n' +
+      `content-length: ${Buffer.byteLength(body)}\r\n` +
+      'connection: close\r\n\r\n' + body
+    );
+  } catch { /* the socket may already be gone; nothing left to say */ }
+  socket.destroy();
+}
+
 server.on('upgrade', (req, socket) => {
-  const pathname = (req.url || '').split('?')[0];
+  const url = (() => { try { return new URL(req.url, `http://${req.headers.host}`); } catch { return null; } })();
+  if (!url) { socket.destroy(); return; }
+  const pathname = url.pathname;
   const isShell = pathname === '/api/shell';
   if (pathname !== '/api/browser/stream' && !isShell) { socket.destroy(); return; }
+
+  /* Two locks, and both have to be open.
+   *
+   * Origin is checked first and differently from how the HTTP side checks it.
+   * The old test was "if an Origin was sent, is it ours", so a client that sent
+   * none — curl, a Node script, any other tool on the machine — passed, and
+   * `Origin: null` passed explicitly. `null` is what a sandboxed iframe sends,
+   * which is a page, and a page should not be reaching a shell.
+   *
+   * Measured against the running server before this change, on a socket with no
+   * Origin and with `Origin: null`: both got 101 and a working shell.
+   *
+   * The token is the lock that does not depend on the caller being a browser,
+   * and it is checked second so that a caller from a web page is refused for the
+   * reason that actually applies to it.
+   *
+   * The reply is a real 401 with a body rather than a bare destroy. Before, a
+   * refused upgrade looked like a network fault — the client saw "socket hang
+   * up" and could not tell a rejection from a crash. A client that is
+   * debugging this needs the difference, and the status line costs nothing. */
   const origin = req.headers.origin;
-  if (origin && origin !== 'null' && origin !== `http://${req.headers.host}`) { socket.destroy(); return; }
+  if (origin !== `http://${req.headers.host}`) return refuseUpgrade(socket, 403, 'origin not allowed');
+  if (!authorised(req, url)) return refuseUpgrade(socket, 401, 'unauthorised');
 
   const key = req.headers['sec-websocket-key'];
   if (!key) { socket.destroy(); return; }
@@ -3482,6 +3747,24 @@ function openDashboard(url) {
 }
 
 async function main() {
+  /* 0. the credential, before anything can be reached.
+   *
+   * Issued first on purpose. If this threw, the port would never open, which is
+   * the correct outcome: a server that came up without a token would be
+   * reachable and unidentifiable, and that is the state this whole change
+   * exists to make impossible.
+   *
+   * Regenerated on every start, so the file on disk is never a secret belonging
+   * to a process that is no longer running. A page open across a restart holds
+   * a cookie that no longer matches, and recovers by reloading, which gets a
+   * fresh one from the same route. */
+  try {
+    ACCESS_TOKEN = access.issue(path.join(ROOT, 'data', access.FILE_NAME));
+  } catch (e) {
+    logErr('could not issue an access token:', e.message);
+    process.exit(1);
+  }
+
   // 1. bind first — fail fast before we spawn a browser
   const port = await pickPort(PORT);
   STATE.port = port;
@@ -3492,6 +3775,20 @@ async function main() {
     server.once('listening', onOk);
     server.listen(port, HOST);
   });
+  // 1b. bring back the engines an agent has built, each one only if its own
+  //     test still passes. Never fatal: a broken file in engines/ is a skipped
+  //     engine, not a server that will not start.
+  try {
+    const restored = forge.registerAll(automation);
+    if (restored.registered.length) {
+      log('restored ' + restored.registered.length + ' generated engine' + (restored.registered.length === 1 ? '' : 's') + ': ' + restored.registered.join(', '));
+    }
+    for (const f of restored.failed) {
+      logErr('generated engine ' + f.id + ' was not registered —', f.reason);
+    }
+  } catch (e) {
+    logErr('could not restore generated engines:', e.message);
+  }
 
   server.on('error', e => logErr('server runtime error:', e.message));
 
@@ -3520,6 +3817,10 @@ async function main() {
   log('  profile   : ' + PROFILE);
   log('  shell     : WS /api/shell  (' + SHELL_NAME + ', code page ' + CODE_PAGE + ')');
   log('  config    : ' + aiStore.FILE);
+  /* Deliberately the path and not the value. The token is the one thing on this
+     banner that must not end up in a screenshot or a pasted bug report, and
+     anyone who genuinely needs the value has the file or the cookie. */
+  log('  access    : token issued → data/' + access.FILE_NAME + ' (new on every start)');
   log('  providers : ' + (cfg.providers.length || 'none — add one in Settings'));
   log('  agent     : ' + (active
     ? `${active.name} → ${active.providerName || '?'} / ${active.model || 'no model'}`

@@ -17,8 +17,12 @@ const DIR = path.join(__dirname, '..', 'data');
 const FILE = path.join(DIR, 'agent-config.json');
 
 const PROTOCOLS = ['openai-compatible', 'anthropic-messages', 'ollama'];
-const TOOL_KEYS = ['browser', 'screenshot', 'dom', 'javascript', 'terminal', 'rules'];
-const DEFAULT_TOOLS = { browser: true, screenshot: true, dom: true, javascript: true, terminal: false, rules: false };
+/* `engines` is the odd one out and deliberately sits beside `terminal` rather
+ * than in it. Both let an agent run code it wrote, and both are off by default,
+ * but they are not the same grant and must not share a switch: `terminal` hands
+ * over a shell, `engines` hands over a folder and a test that has to pass. */
+const TOOL_KEYS = ['browser', 'screenshot', 'dom', 'javascript', 'terminal', 'rules', 'engines'];
+const DEFAULT_TOOLS = { browser: true, screenshot: true, dom: true, javascript: true, terminal: false, rules: false, engines: false };
 
 /* ----------------------------- helpers ------------------------------- */
 
