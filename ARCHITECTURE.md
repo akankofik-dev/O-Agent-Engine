@@ -514,6 +514,47 @@ Efeknya terlihat, dan semuanya tercatat:
 
 Jadi kalimat itu bukan deskripsi — itu **instruksi untuk salah alat**.
 
+## Nama yang tampil bukan cuma teks
+
+Rename pertama bilang "selesai" dua kali, dan dua-duanya **salah**, karena
+cekingnya membaca tempat yang salah. Yang terlewat bukan cuma `git clone
+browser-automation` di README dan `aria-label="O Browser"` di panel chat — yang
+terlewat adalah **hurufnya**.
+
+Mark di panel chat bukan teks. Itu wordmark **piksel 5×7** yang dibangun dari
+~100 `<rect>`:
+
+```
+.###.  ####.  ####.  .###.  #...#  .####  #####  ####.
+#####  #####  #####  #####  #...#  #....  #....  #####
+#...#  #...#  #...#  #...#  #...#  #....  #....  #...#
+#...#  ####.  ####.  #...#  #...#  .###.  ####.  ####.
+#...#  #####  #.#..  #...#  #...#  ....#  #....  #.#..
+#...#  #...#  #..#.  #...#  #.#.#  ....#  #....  #..#.
+.###.  ####.  #...#  .###.  .###.  ####.  #####  #...#
+   O      B      R      O      W      S      E      R
+```
+
+`aria-label` gw ganti ke "O Agent". Screen reader ikut benar. **Orang yang
+menatap layar tetap lihat O BROWSER** — karena yang dil efectivas adalah 121
+piksel, bukan satu atribut.
+
+Jadi aturannya, dan ini yang bikin dua rename lolos:
+
+> **Kalau yang dilihat manusia adalah gambar, cek gambarnya. Bukan `alt`, bukan
+> `aria-label`, bukan nama file.**
+
+Aturan turunannya: sebuah check yang tidak pernah terlihat gagal **belum
+merupakan check**. `test/wordmark.test.js` membaca bitmap-nya, mengenali
+hurufnya lewat font 5×7, dan menampilkan tabelnya di output — supaya kalau
+sekarang ia diam, itu karena memang tidak salah, bukan karena tidak melihat.
+
+Generator yang menulis mark itu juga menolak menulis sebelum bisa **menyalin
+ulang mark lama persis** (16/121/18 piksel, viewBox 49). Aturan recovered-nya
+satu-satunya yang cocok ke delapan huruf yang ada: *tiga piksel tengah dari baris
+yang terisi penuh, kecuali baris pertama dan terakhir*. Kalau tidak cocok, ia
+menolak — daripada menebak desain.
+
 ## Aturannya
 
 **Chrome itu salah satu alat yang mungkin dipakai. Bukan identitas, bukan default, bukan tempat awal.**
