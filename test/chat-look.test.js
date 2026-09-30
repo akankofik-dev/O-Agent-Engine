@@ -184,12 +184,35 @@ check('the composer carries one hairline, not a stack of shadows', () => {
 check('the turn gap scaled with the line height', () => {
   /* At 1.5 a 14px gap already separated two turns; at 1.8 the same gap does not.
      Leaving it alone is how a restyle ends up looking like the old thing with
-     different colours, so the number is checked against the line height. */
-  const gap = /gap:\s*(\d+)px/.exec(rule('.chatinner') || '');
+     different colours, so the number is checked against the line height.
+
+     The gap is written as `var(--chatinner-gap, 28px)` because the hairline that
+     divides two turns is placed from half of it, and a number written in both
+     places is a number that drifts. So the assertion reads the fallback rather
+     than insisting on a literal — it still checks the same 28px against the same
+     line height, which is the part that was ever at risk. */
+  const gap = /gap:\s*(?:var\(\s*--chatinner-gap\s*,\s*)?(\d+)px/.exec(rule('.chatinner') || '');
   const lh = parseFloat(prop('.msg .body', 'line-height'));
   assert.ok(gap, '.chatinner has no gap');
   const g = Number(gap[1]);
   assert.ok(g >= lh * 14, 'a gap of ' + g + 'px against a ' + lh + ' line height does not separate turns');
+});
+
+check('the rule that divides two turns sits in the gap, and not inside a run', () => {
+  /* Drawn on the message rather than the one before it, because a message knows
+     whether it starts a new speaker and the previous one does not know what
+     comes next. `:not(.same)` is what keeps it off a run: inside a run the
+     messages are one turn and a line between them cuts the paragraph in half. */
+  const divider = rule('.msg + .msg:not(.same)::before') || '';
+  assert.ok(divider, 'no rule divides two turns, so the eye has to read a heading to find out it is still in the same turn');
+  assert.ok(/height:\s*1px/.test(divider), 'the divider is not 1px: ' + divider.trim());
+  /* half the gap, because that is the middle of it. A gap that is written in two
+     places is a gap that drifts, so the offset is read from the same custom
+     property the gap itself is set from. */
+  assert.ok(/translateY\(\s*calc\(\s*-1\s*\*\s*var\(\s*--chatinner-gap\s*\)\s*\/\s*2\s*\)/.test(divider),
+    'the divider is not centred in the gap: ' + divider.trim());
+  assert.strictEqual((divider.match(/translateY/g) || []).length, 1,
+    'the divider states its own offset more than once, so one of them is already stale');
 });
 
 /* ---- the parts a restyle usually leaves behind ------------------------- */

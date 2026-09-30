@@ -44,7 +44,9 @@ Or a single suite by name:
 node test/engine-retry.test.js
 ```
 
-They run one at a time, because two of them bind a port. The runner prints a
+They run one at a time, because three of them open a local HTTP server. None of
+those binds a fixed port — each asks the OS for a free one — so the serial run is
+about not interleaving output, not about a port fight. The runner prints a
 total and says so if a suite printed no count of its own, rather than reporting
 a number that quietly does not mean anything.
 

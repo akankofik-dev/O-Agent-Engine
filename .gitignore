@@ -22,6 +22,16 @@ engines/
 data/agent-config.json
 data/automation.json
 
+# Settings → Agent runtimes. Ignored for the same reason as the two above, and it
+# is the one that would hurt most: every record here is an endpoint plus an
+# optional bearer key, written by whoever typed them into the form.
+#
+# The redaction in ai/runtimes/store.js means the key never reaches the browser,
+# which is a different and weaker promise than never reaching a shared history.
+# Once a secret is in a commit it is in every clone, and the only remedy is to
+# rotate it — so the file is excluded rather than trusted to be scrubbed.
+data/runtimes.json
+
 # The agent's own rules, and the changes waiting for a person to accept them.
 #
 # Ignored for the same reason as the two above: data/ is per-machine state, not

@@ -8,10 +8,13 @@
  *
  *      discover -> plan -> use existing
  *                          |
- *                          +-- gap -> build -> verify -> register
- *                                             |
- *                                             v
- *                                          compose -> execute
+ *                          +-- gap the machinery knows -> propose a skill
+ *                          |                            (a person applies it)
+ *                          |
+ *                          +-- gap it does not -> build -> verify -> register
+ *                                                          |
+ *                                                          v
+ *                                                       compose -> execute
  *                                             |
  *                            failure -> repair -> retry
  *                                             |
@@ -55,6 +58,11 @@
  *  this file's job is to arrive at the right door — not to open it.
  * ========================================================================= */
 
+/* The rules store, and only for propose(). It is the first thing in this file
+ * that writes anything, and it writes a PROPOSAL rather than a rule: nothing here
+ * can add a skill to the catalog, because applying one is a person's decision and
+ * that is the entire reason a proposal queue exists. */
+const rules = require('./ai/rules');
 const forge = require('./forge');
 const lifecycle = require('./lifecycle');
 const discover = require('./discover');
@@ -69,7 +77,7 @@ const compose = require('./compose');
  * ordering.
  */
 const CAPABILITIES = [
-  'discover', 'plan', 'guard', 'use-existing', 'build', 'verify', 'register',
+  'discover', 'plan', 'guard', 'use-existing', 'propose-skill', 'build', 'verify', 'register',
   'compose', 'execute', 'repair', 'retry', 'improve', 'promote', 'rollback',
 ];
 
@@ -79,7 +87,9 @@ const CAPABILITIES = [
  * @param {object} router what createRouter returned
  * @param {object} spec   {
  *   task?, needs?: string[],
+ *   guide?: string[],   things the run needs GUIDANCE on, not a capability.
  *   build?: { id?, name?, body, examples },
+ *   skill?: { id?, name, description?, instruction, requires?, reason },
  *   run?: { action, args?, engine? },
  *   workflow?: { steps },
  *   repair?: { id?, body, examples, why? },
@@ -130,14 +140,29 @@ async function evolve(router, spec) {
 
   /* -------------------------------------------------------------------- plan */
   const needs = Array.isArray(s.needs) ? s.needs : [];
-  const plan = discover.plan(router, { needs, task: out.task });
+  /* Forwarded, not decided here. Whether a gap is a knowledge gap or a missing
+     capability is a judgement the agent makes about itself, and this file has no
+     standing to make it on the agent's behalf - it is the part that could be wrong
+     in a way none of the parts are. */
+  const guide = Array.isArray(s.guide) ? s.guide : [];
+  const plan = discover.plan(router, { needs, guide, task: out.task });
   out.decision = plan.decision;
   out.plan = plan;
   say('plan', true,
-    { decision: plan.decision, have: plan.have, missing: plan.missing, servers: plan.servers, disabled: plan.disabled },
+    {
+      decision: plan.decision, have: plan.have,
+      missing: plan.missing, unguided: plan.unguided, gaps: plan.gaps,
+      servers: plan.servers, disabled: plan.disabled,
+    },
     plan.decision === 'build'
       ? 'nothing registered provides ' + plan.missing.join(', ')
-      : 'the registry already covers this');
+      : plan.decision === 'propose-skill'
+        /* Naming WHICH kind of gap is the point. A trace that said only "missing"
+           would leave a reader unable to tell a build that was justified from one
+           that was asked for when guidance was the answer. */
+        ? 'nothing serves ' + plan.unguided.join(', ') + ' as a routed capability, '
+          + 'and the automation layer knows the kind, so this is a knowledge gap'
+        : 'the registry already covers this');
 
   /* --------------------------------------- use what is there, or build what is not */
   if (plan.decision === 'use-existing') {
@@ -148,6 +173,74 @@ async function evolve(router, spec) {
     } else {
       say('use-existing', false, {}, 'nothing was asked for and nothing was found, so there is nothing to use');
     }
+  } else if (plan.decision === 'propose-skill') {
+    /* The second door, and it is a different shape from a build.
+     *
+     * A build writes files, runs them and gates the result, and on the far side of
+     * the gate the capability is live. A skill writes a PROPOSAL, and a person
+     * applies it. Nothing here applies it, and the reason is the same one that
+     * keeps every other step in this file separate: the module that owns a door
+     * owns the decision behind it, and this file only decides which door to walk
+     * to. ai/rules.js decides whether a proposal is well formed, whether it is a
+     * duplicate, and whether the queue is full.
+     *
+     * So the run ENDS here with the task still to do. That is not a failure and it
+     * is not a success - the proposal is sitting in a queue with a person in front
+     * of it, and nothing about the agent being right changes that. Reporting it as
+     * anything else would be a claim the run cannot support. */
+    const want = plan.skill.capability;
+    const given = (s.skill && s.skill[want]) || s.skill || {};
+
+    /* A refusal here is the agent not knowing how we do it, which is the one
+       answer this door exists to produce. */
+    const body = String(given.instruction || given.body || '').trim();
+    const name = String(given.name || '').trim();
+    const why = String(given.reason || '').trim();
+    if (!name || !body || !why) {
+      return stop('propose-skill',
+        'a skill proposal needs a name, the guidance itself, and a reason for it - '
+          + 'without a reason there is nothing for the person reading the queue to judge',
+        say('propose-skill', false, { capability: want, have: { name: !!name, instruction: !!body, reason: !!why } },
+          'the run reached the guidance door with nothing to put through it'));
+    }
+
+    const made = rules.propose({
+      kind: 'create',
+      skill: {
+        id: String(given.id || '').trim(),
+        name,
+        description: String(given.description || '').trim(),
+        requires: Array.isArray(given.requires) ? given.requires : [],
+        instruction: body,
+      },
+      reason: why,
+    }, 'evolve');
+
+    if (!made.ok) {
+      return stop('propose-skill', made.error || 'the proposal was refused',
+        say('propose-skill', false, { capability: want, reason: made.error || '', skillId: given.id || '' },
+          'ai/rules.js refused it, and this file does not overrule that'));
+    }
+
+    say('propose-skill', true,
+      { capability: want, proposalId: made.id, state: made.state, duplicate: !!made.duplicate, skillId: given.id },
+      'a skill is proposed for ' + want + '; a person applies it, and until they do this run has not gained the capability',
+    );
+
+    return Object.assign(out, {
+      ok: false,
+      stage: 'propose-skill',
+      reason: 'a skill was proposed for ' + want + ' and a person has to apply it before the capability exists',
+      reached: Array.from(reached),
+      skill: {
+        capability: want,
+        proposalId: made.id,
+        state: made.state,
+        duplicate: !!made.duplicate,
+        awaitingPerson: true,
+      },
+      workflow: s.workflow ? { trace: [], notRun: [], failedAt: null } : null,
+    });
   } else {
     const want = plan.build.capability;
     const buildSpec = (s.build && s.build[want]) || s.build || {};

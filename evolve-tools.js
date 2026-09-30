@@ -197,8 +197,11 @@ const PLAN_TOOL = {
   name: 'engine_plan',
   description:
     'Ask what the registry can do, and what a task is missing. Returns every engine and capability that ' +
-    'exists, and a decision: use-existing or build. Call this before create_engine — a build is only ' +
-    'justified when a capability is genuinely missing, and this is what establishes that.',
+    'exists, and a decision: use-existing, build, or propose-skill. Call this before create_engine, because ' +
+    'a build is only justified when a capability is genuinely missing and this is what establishes that. ' +
+    'Use guide for something you did or were asked to do that nobody has written down how we do, rather ' +
+    'than something you cannot do at all: that is a knowledge gap, and the answer is a written skill for a ' +
+    'person to review rather than a new engine.',
   caps: [CAP],
   parameters: {
     type: 'object',
@@ -210,14 +213,23 @@ const PLAN_TOOL = {
         description: 'the capabilities the task cannot proceed without, in the router\'s own words — e.g. ["navigate"], ["observe"], ["echo"]',
         items: { type: 'string' },
       },
-      task: { type: 'string', description: 'one line describing the task, kept in the plan for whoever reads it later' },
+      guide: {
+        type: 'array',
+        description:
+          'names you need GUIDANCE on rather than a capability: something you did, or were asked to do, '
+          + 'that nobody here has written down how we do. A gap in this list is answered by proposing a '
+          + 'skill for a person to review, not by building an engine. Anything an engine already '
+          + 'provides is ignored, so this cannot be used to route around a registry that works.',
+        items: { type: 'string' },
+      },
+      task: { type: 'string', description: 'one line describing the task, kept in the plan for whoever reads it' },
     },
   },
   label: (a) => 'plan ' + (((a && a.needs) || []).join('+') || 'task'),
   run: async (_ctx, a) => {
     needRouter(this.name);
     const args = a || {};
-    return discover.plan(router, { needs: args.needs, task: args.task });
+    return discover.plan(router, { needs: args.needs, guide: args.guide, task: args.task });
   },
 };
 
@@ -277,11 +289,12 @@ const COMPOSE_TOOL = {
 const EVOLVE_TOOL = {
   name: 'engine_evolve',
   description:
-    'The whole lifecycle in one call: look at what exists, use it if it fits, build what is missing, run ' +
-    'the task, repair it if it failed, improve it if it worked, and roll it back if asked. Everything it ' +
-    'does is gated — a build that fails its test is never registered, a repair is only promoted if it ' +
-    'passes, an improve needs a reason. Returns the trace of which capabilities actually ran, so you can ' +
-    'see what happened rather than only the result.',
+    'The whole lifecycle in one call: look at what exists, use it if it fits, write down what we are ' +
+    'missing if the gap is knowledge, build what is missing if it is not, run the task, repair it if it ' +
+    'failed, improve it if it worked, and roll it back if asked. Everything it does is gated: a build that ' +
+    'fails its test is never registered, a repair is only promoted if it passes, an improve needs a ' +
+    'reason, and a skill is only ever PROPOSED, for a person to apply. Returns the trace of which ' +
+    'capabilities actually ran, so you can see what happened rather than only the result.',
   caps: [CAP],
   parameters: {
     type: 'object',
@@ -289,6 +302,25 @@ const EVOLVE_TOOL = {
     required: ['needs'],
     properties: {
       task: { type: 'string', description: 'what the task is, in one line' },
+      guide: {
+        type: 'array',
+        description: 'names you need GUIDANCE on rather than a capability, as in engine_plan',
+        items: { type: 'string' },
+      },
+      skill: {
+        type: 'object',
+        description: 'only if a gap is knowledge: the guidance to propose. A person reviews it, so this '
+          + 'call does not apply it and the run stops here having gained nothing. A reason is required, '
+          + 'because without one there is nothing for the reviewer to judge.',
+        properties: {
+          id: { type: 'string', description: 'a short slug' },
+          name: { type: 'string' }, description: { type: 'string' },
+          instruction: { type: 'string', description: 'the guidance itself' },
+          requires: { type: 'array', description: 'capabilities it needs; it cannot widen a toggle',
+            items: { type: 'string' } },
+          reason: { type: 'string', description: 'why this is needed, for the person who reads it' },
+        },
+      },
       needs: { type: 'array', description: 'the capabilities the task cannot proceed without', items: { type: 'string' } },
       build: {
         type: 'object',

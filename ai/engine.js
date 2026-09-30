@@ -251,8 +251,12 @@ async function prepareContext({ profile, controller }) {
  * @param {Function} [o.shouldStop]  polled between rounds and tool calls
  * @param {object}   o.controller    { browser: {action, tabs, runtime}, shell: {exec} }
  * @param {Function} o.onEvent       (event) => void   — streaming sink
+ * @param {string}   [o.planText]    an approved plan rendered by ai/planner.js,
+ *                                   appended to the user message. The run is
+ *                                   the execution of a plan the user has seen
+ *                                   and approved, and the agent is told so.
  */
-async function runAgent({ provider, profile, text, history, attachments: attachmentIds, shouldStop, controller, onEvent }) {
+async function runAgent({ provider, profile, text, history, attachments: attachmentIds, shouldStop, controller, onEvent, planText }) {
   const emit = typeof onEvent === 'function' ? onEvent : () => {};
   const stopped = typeof shouldStop === 'function' ? shouldStop : () => false;
 
@@ -277,6 +281,7 @@ async function runAgent({ provider, profile, text, history, attachments: attachm
   const parts = attachments.toMessageParts(attachmentIds);
   let userText = String(text || '');
   if (parts.text) userText += (userText ? '\n\n' : '') + parts.text;
+  if (planText) userText += (userText ? '\n\n' : '') + planText;
   const userMessage = { role: 'user', content: userText };
   if (parts.images.length) userMessage.images = parts.images;
 

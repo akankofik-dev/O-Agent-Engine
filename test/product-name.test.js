@@ -62,6 +62,7 @@ const OLD = /Octop|octop|OTOP|browser[- ]automation|Browser Automation/;
  */
 const KEYS = [
   { re: /\boctop:[a-z][a-z-]*/i, why: 'a localStorage key; renaming it resets every preference the person has already saved in this browser' },
+  { re: /['"]octop:['"]/, why: 'the namespace prefix those storage keys share, written on its own so the stored-data list can find every key the app owns; renaming it on its own would hide every key at once and the list would claim nothing is stored while all of it still is' },
   { re: /COOKIE_NAME\s*=\s*['"]octop['"]/i, why: 'the name of the login cookie; renaming it logs out every browser that has one' },
   { re: /x-octop-token/i, why: 'the auth header; renaming it makes every client send a header the server no longer accepts' },
   { re: /['"]octop=/i, why: 'the login cookie as a client sends it; the server still reads that name' },

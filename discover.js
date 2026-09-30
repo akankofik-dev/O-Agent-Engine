@@ -50,6 +50,23 @@ function kinds() {
   return Array.from(out).sort();
 }
 
+/* The same set, as a lookup, and computed once.
+ *
+ * This was the line between "nobody can do this" and "nobody has been told how we
+ * do this", and it is MEASURED to be empty. All ten kinds the automation layer can
+ * route are already served by one of the four engines this project ships, so a
+ * need on its own can never be a knowledge gap here.
+ *
+ * That is worth knowing rather than worth deleting. It says the shipped registry is
+ * complete against the shipped vocabulary, which is the thing a planner is for,
+ * and it says the derived half of the guidance rule is currently a safety net
+ * rather than a path: it catches a gap the day a new kind is routed and no engine
+ * claims it yet, and until then it contributes nothing.
+ *
+ * So the rule that actually fires is the caller's, in spec.guide. See plan().
+ */
+const ROUTABLE = new Set(kinds());
+
 /**
  * What the registry can do right now, read from the engines the router holds.
  *
@@ -110,7 +127,13 @@ function capabilities(router) {
  * building.
  *
  * @param {object} router
- * @param {object} spec   { needs: string[], task?: string }
+ * @param {object} spec   {
+ *   needs: string[],
+ *   task?: string,
+ *   guide?: string[],   things the caller needs GUIDANCE on rather than a
+ *                       capability. Anything an engine already serves is ignored,
+ *                       so this cannot be used to bypass a working registry.
+ * }
  */
 function plan(router, spec) {
   const needs = (Array.isArray(spec && spec.needs) ? spec.needs : [])
@@ -128,12 +151,72 @@ function plan(router, spec) {
    from the available-only map, so `off` fell into `missing` and the plan told
    the caller to build a duplicate of an engine that already existed.
    */
-  const have = [], off = [], missing = [];
+  const have = [], off = [], missing = [], unguided = [];
   for (const c of needs) {
     if (survey.capabilities[c]) have.push(c);
     else if (survey.owners[c]) off.push(c);
+    /* And the fourth bucket, which is the one this file was missing.
+     *
+     * `missing` used to mean one thing: build an engine. It is two things, and
+     * they need opposite work.
+     *
+     *   unguided   nothing serves it as a ROUTED capability, but the automation
+     *              layer already knows how to do it. Navigate, extract, act, take
+     *              a screenshot - each of these is something a built-in tool does
+     *              today. A gap here is a gap in KNOWLEDGE, and the answer is a
+     *              skill: a named block of guidance saying how this house does it.
+     *              An engine written for it is a second implementation of
+     *              something that already works, which is the expensive way of
+     *              saying nothing.
+     *
+     *   missing    nothing serves it and the automation layer has never heard of
+     *              it either. There is no machinery to write guidance about, so
+     *              guidance cannot be the answer and the gap is real.
+     *
+     * Both still mean nobody serves this right now, so both are still gaps and
+     * both stop a use-existing. Only the REMEDY differs. */
+    else if (ROUTABLE.has(c)) unguided.push(c);
     else missing.push(c);
   }
+
+  /* And the ones the CALLER said it needed guidance on, which is the half that
+     * actually fires.
+     *
+     * The derived half above is a real rule and it is currently empty, and that is
+     * a measurement rather than an omission: with the engines this project ships,
+     * every one of the ten kinds the automation layer can route is already served
+     * by one of them. So a need on its own can never be a knowledge gap here, and a
+     * planner that relied on the derived half alone would ship a door that never
+     * opens.
+     *
+     * Which is the honest shape of the problem. "I need a capability nobody has"
+     * and "I got it done and it was wrong" are different facts, and only the agent
+     * in the first person knows which one it has. A need is a need; a thing it
+     * cannot do is never a guidance gap. So the caller says so, in a field of its
+     * own, and the plan honours it.
+     *
+     * It is kept separate from `needs` on purpose. Folding the two together would
+     * let a capability that an engine already serves be re-planned as a skill
+     * because the agent called it one, which is the one way this door could be
+     * used to bypass a registry that already works. */
+  const asked = (Array.isArray(spec && spec.guide) ? spec.guide : [])
+    .map(x => String(x).trim()).filter(Boolean);
+  for (const g of asked) {
+    /* An engine that serves it wins, whatever the caller said. This is the guard
+     * against the door being used to bypass a registry that already works, and it
+     * is checked here rather than at the far end so that a plan can never contain
+     * the same name in `have` and `unguided`. */
+    if (survey.capabilities[g] || survey.owners[g]) continue;
+    /* And it is REMOVED from `missing`, not added to `unguided` beside it. The
+     * first version only added, so a guided gap appeared in both lists at once:
+     * `missing` said there was no machinery for it and `unguided` said there was,
+     * and a caller reading either one was told something false. Saying "this is
+     * guidance" is a claim about the same gap, not an additional one. */
+    const at = missing.indexOf(g);
+    if (at >= 0) missing.splice(at, 1);
+    if (!unguided.includes(g)) unguided.push(g);
+  }
+  const gaps = unguided.concat(missing);
 
   /* Which engines can serve — the ones that declare a needed capability and are
      actually available. This is the set that stops a build: if it is not empty,
@@ -160,12 +243,23 @@ function plan(router, spec) {
     }).sort();
 
   /* The decision follows the gap, not the best-covered part. A task needing
-     two things where one is served still needs building for the other, and
+     two things where one is served still needs something for the other, and
      answering 'use existing' because one of them is covered is the answer
-     that sends the agent off to use a shout engine to do a watermark. A
-     capability is in `missing` precisely because nothing declares it, so
-     there is nothing left to weigh: a gap is a build. */
-  const decision = missing.length ? 'build' : 'use-existing';
+     that sends the agent off to use a shout engine to do a watermark.
+     */
+  /*
+   * Three ways out, and they are in the order of how much they ask of somebody
+   * else. Use an engine that works. Turn on one that is switched off. Then write
+   * guidance if the machinery exists, and code if it does not.
+   *
+   * The middle one is the change. A plan that reached for `build` before considering
+   * a skill was telling the agent to write an engine in order to be told how to
+   * use a tool it already has - and the engine it wrote would then have to be
+   * tested, gated and registered before anyone could read the three sentences
+   * that were wanted.
+   */
+  const decision = !gaps.length ? 'use-existing'
+    : (unguided.length ? 'propose-skill' : 'build');
 
   const out = {
     task: String((spec && spec.task) || '').slice(0, 300),
@@ -173,6 +267,17 @@ function plan(router, spec) {
     have,
     off,
     missing,
+    /* The gap that guidance can answer, named as its own list rather than folded
+       into `missing`. A caller that cannot tell them apart has to build. */
+    unguided,
+    /* Everything nobody serves, in one list, so a caller that only wants "is there
+       a hole" does not have to know how the hole is spelled. */
+    gaps,
+    /* Which of the two rules put something in `unguided`, because a reader of the
+       plan has to be able to tell a gap the code found from one the agent named,
+       and they are not equally trustworthy. */
+    guidedBy: asked.filter(g => unguided.includes(g)),
+    derivedGuidance: unguided.filter(g => !asked.includes(g)),
     decision,
     engines: survey.engines,
     servers,
@@ -185,19 +290,41 @@ function plan(router, spec) {
       off.some(c => (survey.owners[c] || []).includes(id))) : [],
   };
 
+  /* One guidance proposal at a time, for the same reason a build is one engine
+     at a time: each is separately examined, and a person applies it. A proposal
+     queue that arrives as a batch is a queue nobody reads. */
+  if (decision === 'propose-skill') {
+    out.skill = {
+      capability: unguided[0],
+      stillUnguidedAfter: unguided.slice(1),
+      stillMissingAfter: missing,
+      /* What a skill is, in the shape ai/rules.js validates. It is named here
+         rather than left to the caller because the id has to be a slug and the
+         capability is not one - "dom.extract" is not an id. */
+      required: ['id', 'name', 'description', 'instruction'],
+      why: 'nothing serves ' + unguided.join(', ') + ' as a routed capability, but the '
+        + 'automation layer already knows the kind - so what is missing is how this '
+        + 'house does it, which is a skill and not an engine',
+    };
+  }
+
   if (decision === 'build') {
     out.build = {
       /* One capability at a time, and the first gap in the order the caller gave.
          A workflow that needs three things and has none of them is three
          engines, and building them one at a time is what lets each one be
          tested and refused on its own. */
+      /* `missing` and not `gaps`. A decision of build means every gap was a real
+         one, so the two are the same list here - but reaching for gaps[0] would
+         be reading a list whose first entry may be a guidance gap, and a build
+         that names one builds an engine for something guidance answers. */
       capability: missing[0],
       stillMissingAfter: missing.slice(1),
       /* what the agent has to supply, and what will be refused without it */
       required: ['body', 'examples'],
       why: 'no registered engine declares ' + missing.filter(c => !survey.capabilities[c]).join(', '),
     };
-  } else if (decision === 'use-existing' && !missing.length && !servers.length && disabled.length) {
+  } else if (decision === 'use-existing' && !gaps.length && !servers.length && disabled.length) {
     out.turnOn = disabled;
   }
 
@@ -237,7 +364,31 @@ function guardBuild(router, request) {
     return { ok: false, reason: '"' + want + '" exists but is not available: ' + off.join(', ') + ' — turn it on rather than building a second one',
       turnOn: off, decision: 'use-existing' };
   }
-  return { ok: true, capability: want, reason: 'no registered engine provides "' + want + '"', decision: 'build' };
+  /* The same four-way answer plan() gives, because a guard that disagrees with the
+     plan is worse than no guard: the plan says propose-skill, the agent asks to
+     build, and the guard waves it through because it only knew about two answers.
+     This was the hole the new decision would otherwise have opened. */
+  /* A caller that says the gap is guidance gets the guidance answer, and the
+   * registry check above has already run - so this cannot wave through a
+   * capability an engine provides. It used to ignore the claim entirely, and a
+   * plan saying propose-skill next to a guard saying build is a run that can
+   * explain itself two ways. */
+  if (request && request.guide === true) {
+    return { ok: true, capability: want,
+      reason: 'nothing provides "' + want + '" and the caller says this is a '
+        + 'knowledge gap rather than a missing capability',
+      decision: 'propose-skill' };
+  }
+  if (ROUTABLE.has(want)) {
+    return { ok: true, capability: want,
+      reason: 'nothing provides "' + want + '" as a routed capability, and the '
+        + 'automation layer already knows the kind - write a skill, not an engine',
+      decision: 'propose-skill' };
+  }
+  return { ok: true, capability: want,
+    reason: 'no registered engine provides "' + want + '" and nothing in the '
+      + 'automation layer knows the kind either',
+    decision: 'build' };
 }
 
 module.exports = { capabilities, plan, guardBuild, kinds };

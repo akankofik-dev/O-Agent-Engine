@@ -67,6 +67,7 @@ Tidak ada router table. Static: `serveStatic()` (`:2919`) — traversal dicek,
 | `data/rules.json` | `ai/rules.js:190` | tmp+rename+chmod 0600 |
 | `data/rule-proposals.json` | `ai/rules.js` | tmp+rename+chmod 0600 |
 | `data/automation.json` | `ai/automation/state.js:56` | tmp+rename+chmod 0600 |
+| `data/runtimes.json` | `ai/runtimes/store.js` | tmp+rename+chmod 0600 |
 | `data/agents/<id>/SOUL.md`, `MEMORY.md` | `ai/agentfiles.js:99` | tmp+rename, **tanpa chmod** |
 | `data/inbox/<id>/<nama>` | `ai/attachments.js:228` | **tidak atomik**, tidak ada tmp |
 

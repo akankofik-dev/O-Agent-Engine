@@ -32,6 +32,7 @@ const { spawn, execFileSync, execFile } = require('child_process');
 const aiStore = require('./ai/store');
 const aiProviders = require('./ai/providers');
 const aiEngine = require('./ai/engine');
+const aiPlanner = require('./ai/planner');
 const aiSkills = require('./ai/skills');
 const aiRules = require('./ai/rules');
 const agentFiles = require('./ai/agentfiles');
@@ -42,6 +43,13 @@ const forge = require('./forge');
 const evolveTools = require('./evolve-tools');
 const browserSession = require('./ai/browser/session');
 const agentRuns = require('./ai/runs').createRunRegistry();
+
+/* The agent runtime layer — which PROGRAM answers, as opposed to which model.
+ * Built here rather than up with the other requires because it needs the run
+ * registry: a runtime's events are recorded in the same table an agent run uses,
+ * under the same lock, so the canvas, the activity dock and replay read one
+ * source of events rather than two. */
+const agentRuntimes = require('./ai/runtimes/manager').createManager({ runs: agentRuns });
 
 /* The access boundary. `access` issues and checks the one credential this
    server has; `policy` decides whether a profile's allowlist and blocklist are
@@ -473,6 +481,7 @@ async function connectCDP() {
 
   cdpSocket = ws;
   STATE.connected = true;
+  browserConnected = true;
   cdpBackoff = 0;
 
   ws.onmessage = ev => {
@@ -483,6 +492,7 @@ async function connectCDP() {
   };
   ws.onclose = () => {
     STATE.connected = false;
+    browserConnected = false;
     cdpSocket = null;
     for (const [, p] of cdpPending) p.reject(new Error('CDP connection closed'));
     cdpPending.clear();
@@ -533,6 +543,28 @@ async function connectCDP() {
   log('CDP ready —', targets.size, 'targets,', sessions.size, 'sessions');
 }
 
+/* Lazy browser connect: only launch Chrome and connect CDP when first needed.
+ * This avoids starting Chrome on server startup if the user never uses browser tools.
+ * Safe to call multiple times — only the first call does work. */
+let browserConnecting = false;
+let browserConnected = false;
+async function ensureBrowserConnected() {
+  if (browserConnected) return;
+  if (browserConnecting) {
+    // wait for the in-flight connection
+    while (browserConnecting) await sleep(100);
+    return;
+  }
+  browserConnecting = true;
+  try {
+    await ensureChrome();
+    await connectCDP();
+    browserConnected = true;
+  } finally {
+    browserConnecting = false;
+  }
+}
+
 /**
  * Keep trying until the browser is back.
  *
@@ -552,8 +584,7 @@ function scheduleReconnect() {
     (async () => {
       try {
         // the browser may be the thing that went away, not just the socket
-        await ensureChrome();
-        await connectCDP();
+        await ensureBrowserConnected();
       } catch (e) {
         cdpBackoff += 1;
         logErr('CDP reconnect failed:', e.message, '— retrying');
@@ -1141,6 +1172,7 @@ const READ_EXPR = String.raw`(() => {
 })()`;
 
 async function doAction(body) {
+  await ensureBrowserConnected();
   const act = String(body.action || '');
   const wanted = body.tabId ? String(body.tabId) : null;
 
@@ -1455,6 +1487,7 @@ async function setWindowBounds(body) {
 }
 
 async function doTabs(body) {
+  await ensureBrowserConnected();
   const action = String(body.action || 'list');
 
   if (action === 'list') {
@@ -1911,8 +1944,10 @@ async function handleApi(req, res, url) {
   }
 
   if (pathname === '/api/ready') {
-    const ready = STATE.connected && !!activeSession();
-    return sendJson(res, ready ? 200 : 503, {
+    // With lazy connect, the HTTP server is ready even if browser isn't connected yet.
+    // Readiness means "can serve requests", not "browser is up".
+    const ready = true;
+    return sendJson(res, 200, {
       ok: ready,
       service: 'o-agent',
       browserConnected: STATE.connected,
@@ -1921,6 +1956,7 @@ async function handleApi(req, res, url) {
   }
 
   if (pathname === '/api/browser/status' && req.method === 'GET') {
+    await ensureBrowserConnected();
     const st = statusObject();
     const sess = activeSession();
     st.pageHidden = null;
@@ -2034,6 +2070,115 @@ async function handleApi(req, res, url) {
     } catch (e) { return sendJson(res, 400, { ok: false, error: e.message }); }
   }
 
+  /* ---- agent runtimes ----
+   *
+   * A separate layer from the two above on purpose. The provider registry and the
+   * profile registry are both about WHICH MODEL answers; these are about WHICH
+   * PROGRAM is doing the answering, and a runtime has a socket, a capability
+   * document and a run lifecycle that a model does not have. They share the store
+   * discipline — atomic, 0600, redacted — and nothing else.
+   *
+   * Nothing here answers `connected` without a request having succeeded during
+   * this call. Every route below either probes, or says in the body that it did
+   * not. There is no third option. */
+
+  if (pathname === '/api/runtimes' && req.method === 'GET') {
+    const d = agentRuntimes.describe();
+    /* probe=1 is explicit rather than implied, for the same reason
+       /api/automation/engines has it: loading Settings must not open five
+       sockets to five programs just to draw a list. */
+    if (req.url && req.url.indexOf('probe=1') !== -1) {
+      return sendJson(res, 200, { ok: true, ...d, runtimes: await agentRuntimes.statusAll() });
+    }
+    /* Not probed, and that is what it says. `status: null` beats a plausible
+       guess: a row that says `unavailable` when nobody asked would be a lie
+       about something, and a row that says `connected` would be worse. */
+    const rows = d.runtimes.map(r => ({ ...r, status: null, reason: 'not probed yet', checkedAt: 0 }));
+    return sendJson(res, 200, { ok: true, ...d, runtimes: rows });
+  }
+
+  if (pathname === '/api/runtimes' && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, error: 'bad json: ' + e.message }); }
+    const out = agentRuntimes.save(body);
+    return sendJson(res, out.ok ? 200 : 400, out);
+  }
+
+  if (pathname === '/api/runtimes' && req.method === 'DELETE') {
+    const id = new URL(req.url, 'http://x').searchParams.get('id') || '';
+    const out = agentRuntimes.remove(id);
+    return sendJson(res, out.ok ? 200 : 400, out);
+  }
+
+  /* Hand a run to a runtime.
+   *
+   * Not server-sent events, unlike /api/agent/run, and the difference is
+   * deliberate rather than an omission. That route streams the agent loop because
+   * the loop lives in this process and this process can narrate it. A runtime run
+   * ends with one answer, and it has already been written into agentRuns — the
+   * same table, under the same lock, that /api/agent/run?runId= replays from. A
+   * page that wants the events asks there, exactly as it does after a refresh
+   * mid-turn — the runtime's events are the same events, in the same table, and a
+   * second replay path would be a second thing to keep honest. So this route
+   * waits for the run and hands back its view.
+   */
+  if (pathname === '/api/runtimes/run' && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, error: 'bad json: ' + e.message }); }
+    const out = await agentRuntimes.run(body);
+    return sendJson(res, out.ok ? 200 : 409, out);
+  }
+
+  if (pathname === '/api/runtimes/stop' && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, error: 'bad json: ' + e.message }); }
+    return sendJson(res, 200, await agentRuntimes.stop(body));
+  }
+
+  /* The one button that does the honest thing: ask the runtime.
+   *
+   * Two shapes, and the difference matters. With an `id` this is a measurement
+   * of what is on disk. With a `draft` it is a measurement of what is on
+   * SCREEN — validated by the same function a save uses, built into an adapter,
+   * and never written. Testing an edit by id would answer a question about the
+   * old endpoint while the person reads the answer as being about the new one. */
+  if (pathname === '/api/runtimes/test' && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, error: 'bad json: ' + e.message }); }
+    if (body && typeof body.draft === 'object' && body.draft) {
+      const out = await agentRuntimes.testDraft(body.draft);
+      return sendJson(res, 200, { ok: !!out.ok, ...out });
+    }
+    const out = await agentRuntimes.test(String(body.id || ''));
+    return sendJson(res, 200, { ok: !!out.ok, ...out });
+  }
+
+  if (pathname === '/api/runtimes/connect' && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, error: 'bad json: ' + e.message }); }
+    return sendJson(res, 200, await agentRuntimes.connect(String(body.id || '')));
+  }
+
+  if (pathname === '/api/runtimes/disconnect' && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, error: 'bad json: ' + e.message }); }
+    return sendJson(res, 200, await agentRuntimes.disconnect(String(body.id || '')));
+  }
+
+  /* what a runtime can do, asked of the runtime and never read off a list here */
+  if (pathname === '/api/runtimes/capabilities' && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, error: 'bad json: ' + e.message }); }
+    return sendJson(res, 200, await agentRuntimes.capabilities(String(body.id || '')));
+  }
+
   /* real Test Connection — no fake success anywhere in this path */
   if (pathname === '/api/ai/test' && req.method === 'POST') {
     let body;
@@ -2104,7 +2249,7 @@ async function handleApi(req, res, url) {
   if (pathname === '/api/automation/engines' && req.method === 'GET') {
     if (req.url && req.url.indexOf('probe=1') !== -1) {
       // the availability check: what is really here, not what is claimed
-      try { await automation.probeAll(automationEndpoints(aiStore.activeProfile())); }
+      try { await ensureBrowserConnected(); await automation.probeAll(automationEndpoints(aiStore.activeProfile())); }
       catch (e) { logErr('automation probe failed:', e.message); }
     }
     return sendJson(res, 200, Object.assign({ ok: true }, automation.describe()));
@@ -2199,6 +2344,37 @@ async function handleApi(req, res, url) {
     const run = agentRuns.cancel(id);
     if (!run) return sendJson(res, 200, { ok: false, error: 'that run has already finished' });
     return sendJson(res, 200, { ok: true, runId: id, stopped: true });
+  }
+
+  /* The user's answer to a proposed plan. The run is parked in planWaits until
+   * this arrives; a page that reloaded replays the recorded 'plan' event and
+   * answers here with the same runId. Approving may carry an edited plan —
+   * the edit is validated against the same catalog the original was, because
+   * an edit that names a tool the profile does not have would fail far away
+   * from here, at execution time, and read like the agent's fault. */
+  if (pathname === '/api/agent/plan/respond' && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); }
+    catch (e) { return sendJson(res, 400, { ok: false, error: 'bad json: ' + e.message }); }
+    const runId = String(body.runId || '').slice(0, 64);
+    const entry = planWaits.get(runId);
+    if (!entry) return sendJson(res, 409, { ok: false, error: 'no plan is waiting for that run' });
+    const decision = String(body.decision || '');
+    if (decision !== 'approve' && decision !== 'reject') {
+      return sendJson(res, 400, { ok: false, error: 'decision has to be "approve" or "reject"' });
+    }
+    if (decision === 'approve') {
+      let plan = entry.plan;
+      if (body.plan !== undefined && body.plan !== null) {
+        const v = aiPlanner.validate(body.plan, entry.toolNames);
+        if (!v.ok) return sendJson(res, 400, { ok: false, error: 'edited plan refused: ' + v.reason });
+        plan = v.plan;
+      }
+      settlePlanWait(runId, { decision: 'approve', plan });
+    } else {
+      settlePlanWait(runId, { decision: 'reject', note: String(body.note || '').slice(0, 500) });
+    }
+    return sendJson(res, 200, { ok: true, runId, decision });
   }
 
   if (pathname === '/api/agent/forget' && req.method === 'POST') {
@@ -3035,6 +3211,48 @@ async function agentRunStatus(req, res) {
   return sendJson(res, 200, { ok: true, known: true, ...view });
 }
 
+/* ---- plan approval: the run waits here until the user decides ------------ *
+ *  A proposed plan parks a resolver in this map, keyed by runId. The run sits
+ *  on the promise; /api/agent/plan/respond resolves it. A page that reloads
+ *  mid-wait replays the recorded 'plan' event and can still answer, because
+ *  the wait lives on the server, not on the connection that proposed it.
+ *  Stopping the run resolves the wait too — a wait that outlived the stop
+ *  button would be a run nobody can cancel. */
+const planWaits = new Map();
+
+function waitPlanDecision(runId, run, plan, toolNames) {
+  return new Promise(resolve => {
+    const entry = { plan, toolNames, resolve, iv: null };
+    planWaits.set(runId, entry);
+    entry.iv = setInterval(() => {
+      if (run.stopped || run.finished) {
+        clearInterval(entry.iv);
+        planWaits.delete(runId);
+        resolve(null); // stopped or finished while the plan was waiting
+      }
+    }, 400);
+    /* Safety net: if the run is abandoned (server restart, crash, or the
+       wait is never resolved), clean up after 5 minutes so planWaits
+       does not grow unbounded. */
+    entry.timeout = setTimeout(() => {
+      clearInterval(entry.iv);
+      planWaits.delete(runId);
+      resolve(null);
+    }, 5 * 60 * 1000);
+  });
+}
+
+/** resolve a waiting plan. Called by the respond route; false when nothing waits. */
+function settlePlanWait(runId, decision) {
+  const entry = planWaits.get(runId);
+  if (!entry) return false;
+  clearInterval(entry.iv);
+  if (entry.timeout) clearTimeout(entry.timeout);
+  planWaits.delete(runId);
+  entry.resolve(decision);
+  return true;
+}
+
 async function agentRun(body, res) {
   const { profile, provider, model } = aiStore.resolveProfile(body.profileId);
   if (!profile) {
@@ -3090,6 +3308,54 @@ async function agentRun(body, res) {
   const started = Date.now();
   try {
     const client = aiProviders.create({ ...provider, model });
+    const controller = agentController(profile, send);
+
+    /* The planning phase, in front of everything. Every instruction passes
+       the planner first: chat is answered by the normal loop as before, and
+       anything the machine must DO comes back as a plan that waits here for
+       the user's word. Nothing below touches the machine until that wait
+       resolves with an approved plan — that wait IS the user's oversight. */
+    const prepared = await aiEngine.prepareContext({ profile, controller });
+    let approvedPlan = null;
+    let planNote = '';
+    let replans = 0;
+    let planFailed = null;
+    for (;;) {
+      const p = await aiPlanner.plan({
+        provider: client, text, history: body.history,
+        toolSchemas: prepared.toolSchemas, note: planNote || undefined,
+      });
+      if (!p.ok) { planFailed = p.reason; break; }
+      if (p.plan.kind === 'answer') break;
+      send({ type: 'plan', phase: 'proposed', plan: p.plan, replans });
+      const decision = await waitPlanDecision(runId, run, p.plan, prepared.toolSchemas.map(t => t.name));
+      if (!decision) break; // stopped while the plan waited — reported below
+      if (decision.decision === 'approve') {
+        approvedPlan = decision.plan;
+        send({ type: 'plan', phase: 'approved', plan: decision.plan });
+        break;
+      }
+      send({ type: 'plan', phase: 'rejected', note: decision.note || '' });
+      if (decision.note && replans < aiPlanner.MAX_REPLANS) {
+        replans++;
+        planNote = decision.note;
+        continue;
+      }
+      send({
+        type: 'final', ok: true, rounds: 0,
+        text: decision.note || 'Plan rejected — nothing was run.',
+        stopped: false, truncated: false, ms: Date.now() - started,
+      });
+      res.end();
+      return; // the finally still releases the run lock
+    }
+    if (planFailed) throw new Error(planFailed); // answered by the catch below
+    if (run.stopped) {
+      send({ type: 'final', ok: true, rounds: 0, text: '', stopped: true, truncated: false, ms: Date.now() - started });
+      res.end();
+      return;
+    }
+
     const out = await aiEngine.runAgent({
       provider: client,
       profile,
@@ -3097,8 +3363,9 @@ async function agentRun(body, res) {
       history: body.history,
       attachments: attachmentIds,
       shouldStop: () => run.stopped,
-      controller: agentController(profile, send),
+      controller,
       onEvent: send,
+      planText: approvedPlan ? aiPlanner.renderPlanText(approvedPlan) : undefined,
     });
     /* `truncated` is carried out rather than dropped. The run reaching its round
        limit is not the same event as finishing, and a page that cannot tell them
@@ -3882,9 +4149,8 @@ async function main() {
     logErr('could not seed AI config:', e.message);
   }
 
-  // 3. then bring up the real browser + CDP
-  await ensureChrome();
-  await connectCDP();
+  // 3. browser + CDP are now lazy — connect on first use
+  // await ensureChrome(); await connectCDP();  // REMOVED: lazy connect
 
   const cfg = aiStore.publicView();
   const active = cfg.profiles.find(p => p.id === cfg.activeProfileId) || null;

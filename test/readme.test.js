@@ -110,9 +110,20 @@ check('the number of port-binding suites is the number it quotes', () => {
      * first run of this check failed on its own source. A guard that counts its
      * own detector is not measuring the thing it claims to measure. */
   const binders = suites.filter(f => f !== path.basename(__filename) && /createServer|\.listen\(/.test(read('test/' + f)));
-  console.log('         yang bind port  : ' + binders.join(', '));
+  console.log('         yang buka server: ' + binders.join(', '));
   console.log('         yang hanyaClient: ' + suites.filter(f => /127\.0\.0\.1:8787/.test(read('test/' + f))).join(', '));
-  assert.strictEqual(binders.length, 2, 'the README says two; the code has ' + binders.length + ': ' + binders.join(', '));
+  /* The number is 3 rather than 2 because runtimes.test.js was added: it needs a
+   * real socket, because a stubbed adapter cannot produce the one thing this
+   * whole layer is about — a runtime that answers 401, or 404, or not at all.
+   *
+   * Worth being precise about what the count does and does not mean. Every one
+   * of these calls listen(0), which asks the OS for a free port, so none of them
+   * can collide with another suite or with the product on 8787. This check
+   * therefore counts suites that OPEN a server, not suites that contend for one,
+   * and the README now says the same thing rather than implying a port fight
+   * that does not happen. A suite that bound a fixed port would be a real
+   * problem, and the count above would not be the thing to catch it. */
+  assert.strictEqual(binders.length, 3, 'the README says three; the code has ' + binders.length + ': ' + binders.join(', '));
 });
 
 check('the runner agrees with the README about that', () => {
